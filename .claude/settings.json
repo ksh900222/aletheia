@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"\\\\.innerHTML = \\\\`\" /Users/shkim/PycharmProjects/project_planner/public/app.js)",
+      "Bash(grep -n \"innerHTML.*\\\\`\\\\|textContent.*=\" /Users/shkim/PycharmProjects/project_planner/public/app.js)",
+      "Bash(grep \"innerHTML\\\\|innerHTML = \\\\`\")",
+      "Bash(awk '/^function escapeHtml/,/^}/ { print NR\": \"$0 }' /Users/shkim/PycharmProjects/project_planner/public/app.js)",
+      "Bash(node --check src/routes/schedules.js)",
+      "Bash(node --check src/routes/attachments.js)",
+      "Bash(node --check src/holidays.js)",
+      "Bash(node --check src/server.js)",
+      "Bash(curl -s http://localhost:3000/ -o /dev/null -w \"localhost: HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -m 2 http://0.0.0.0:3000/ -o /dev/null -w \"0.0.0.0: HTTP %{http_code}\\\\n\")",
+      "Bash(PORT=4001 HOST=0.0.0.0 nohup node src/server.js)",
+      "Bash(curl -s http://localhost:4001/api/health -w \"\\\\n  HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:3000/api/health -w \"\\\\n  HTTP %{http_code}\\\\n\")",
+      "Bash(git --version)",
+      "Bash(brew --version)"
+    ]
+  }
+}

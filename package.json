@@ -1,0 +1,20 @@
+{
+  "name": "project-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Category-based scheduler with DAG dependencies and daily reports",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.1",
+    "multer": "^1.4.5-lts.1"
+  }
+}

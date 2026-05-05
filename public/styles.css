@@ -1,0 +1,750 @@
+* { box-sizing: border-box; }
+
+:root {
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --border: #e3e6ee;
+  --text: #1f2330;
+  --muted: #6a7080;
+  --primary: #4f8cff;
+  --primary-hover: #3a78ec;
+  --danger: #e34d4d;
+  --danger-hover: #c93f3f;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+               "Noto Sans KR", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 18px; margin: 0; }
+.topbar-spacer { flex: 1; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: calc(100% - 49px);
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  padding: 16px;
+  overflow-y: auto;
+}
+.content { padding: 24px; overflow-y: auto; }
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.section-head.sub { margin-top: 24px; }
+.section-head h2 { margin: 0; font-size: 16px; }
+.section-head h3 { margin: 0; font-size: 14px; color: var(--muted); }
+
+.all-view-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8f9fc;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+.all-view-btn:hover { background: #eef3ff; }
+.all-view-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.category-list { list-style: none; padding: 0; margin: 0; }
+.category-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.category-list li:hover { background: #f0f3fb; }
+.category-list li.active { background: #e7eeff; }
+.category-list .swatch {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--primary);
+}
+
+.muted { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover { background: #f5f7fc; }
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.btn-danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
+
+.actions { display: flex; gap: 8px; }
+
+.empty {
+  margin-top: 64px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.schedules {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+/* `.schedules.resizable` 은 컬럼 너비를 th 의 인라인 width 에 맞춰 고정시키고
+   사용자가 드래그로 조정할 수 있도록 함. table-layout: fixed 로 가지치는 게 핵심 */
+.schedules.resizable { table-layout: fixed; }
+.schedules.resizable th {
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedules.resizable td {
+  overflow: hidden;
+}
+/* Drag handle on the right edge of each th (except the last). Almost invisible
+   until hovered so it doesn't visually pollute the header. */
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  background: transparent;
+  z-index: 1;
+}
+.col-resize-handle:hover,
+.col-resize-handle.dragging {
+  background: rgba(31, 95, 201, 0.4);
+}
+.schedules th, .schedules td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+}
+.schedules th { background: #f8f9fc; color: var(--muted); font-weight: 600; }
+.schedules tr:last-child td { border-bottom: none; }
+
+.status-pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef0f5;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: filter 0.1s ease;
+}
+.status-pill:hover { filter: brightness(0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.08); }
+.status-pill.in_progress { background: #fff4d9; color: #a06c00; }
+.status-pill.done { background: #e0f5e2; color: #1f7a2c; }
+.status-pill.blocked { background: #fde2e2; color: #b03333; }
+.status-pill.not_started {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  padding: 1px 7px;  /* compensate for border */
+}
+
+.hidden { display: none !important; }
+
+.slack-pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e7f0ff;
+  color: #1f5fc9;
+}
+.slack-pill.zero { background: #f1f3f6; color: #99a0ad; }
+
+.link-pill, .delay-pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  transition: filter 0.1s ease;
+}
+.link-pill:hover, .delay-pill:hover { filter: brightness(0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.08); }
+.link-pill.strong { background: #ffe4e0; color: #b94334; }
+.link-pill.weak { background: #e6f4ea; color: #1f7a2c; }
+.delay-pill.auto_shift { background: #e7f0ff; color: #1f5fc9; }
+.delay-pill.warn_only { background: #fff4d9; color: #a06c00; }
+
+.shifted-line, .conflict-line { font-size: 13px; line-height: 1.6; }
+.shifted-line::before { content: '↓ '; color: #1f5fc9; }
+.conflict-line::before { content: '⚠ '; color: #c93f3f; }
+
+.report-modal-card { width: 560px; }
+
+/* Read-only context box at the top of the report modal when opened from a
+   Gantt bar click. Shows the linked schedule's metadata so the writer has
+   context without polluting the body field. */
+.report-meta-box {
+  background: #f3f6fb;
+  border: 1px solid #d8e0ec;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.report-meta-box .meta-row { display: flex; gap: 6px; }
+.report-meta-box .meta-label {
+  flex: 0 0 70px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.report-meta-box .meta-value { flex: 1; word-break: break-word; }
+.report-meta-box .schedule-cat-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #e7eeff;
+  color: #1f5fc9;
+}
+
+/* dep-create modal (3-slot anchor form) */
+.dep-side {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+}
+.dep-side legend {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 6px;
+}
+.dep-side.current {
+  border-color: var(--primary);
+  background: #f4f8ff;
+}
+.dep-side.current legend {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.checkgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafbfd;
+}
+.checkgrid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.checkgrid input[type="checkbox"] { width: auto; margin: 0; }
+
+.cat-tag {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: var(--primary);
+  margin-right: 4px;
+}
+
+.attachment-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.attachment-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.attachment-list li:last-child { border-bottom: none; }
+.attachment-list .att-kind {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f3f6;
+  color: var(--muted);
+}
+.attachment-list .att-kind.upload { background: #e7f0ff; color: #1f5fc9; }
+.attachment-list .att-kind.local_path { background: #fff4d9; color: #a06c00; }
+.attachment-list .att-name { flex: 1; }
+.attachment-list .att-path { font-size: 11px; color: var(--muted); }
+.attachment-list a { color: var(--primary); text-decoration: none; }
+.attachment-list a:hover { text-decoration: underline; }
+
+.attach-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.attach-actions label.btn { cursor: pointer; }
+
+.report-row { cursor: pointer; }
+.report-row:hover { background: #f5f7fc; }
+.preview-cell {
+  max-width: 360px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Multi-line clamp (up to 5 lines) to keep table rows from getting absurd. */
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ----- Schedule toolbar (search + view toggle + add) ----- */
+.schedule-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-toolbar input[type="search"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  width: 200px;
+}
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-toggle .view-btn {
+  border: none;
+  border-radius: 0;
+  padding: 6px 12px;
+  background: var(--panel);
+}
+.view-toggle .view-btn + .view-btn { border-left: 1px solid var(--border); }
+.view-toggle .view-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ----- Gantt chart ----- */
+.gantt {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  overflow-x: auto;
+  user-select: none;
+  position: relative;
+}
+.gantt-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 28px;
+}
+.gantt-grid {
+  position: relative;
+  /* width set inline = days * day-width */
+}
+.gantt-header {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: #f8f9fc;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.gantt-day {
+  flex: 0 0 var(--day-w, 32px);
+  width: var(--day-w, 32px);
+  text-align: center;
+  font-size: 10px;
+  padding: 4px 0;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  line-height: 1.2;
+}
+/* 토요일: 옅은 파란색 (눈에 띄되 압도하지 않는 정도) */
+.gantt-day.saturday { background: #d6e4f7; }
+/* 일요일/법정공휴일: 옅은 빨간색 (눈에 거슬리지 않게) */
+.gantt-day.holiday { background: #fdecec; color: #b94334; }
+.gantt-day.holiday .month { color: #c98080; }
+/* today 가 가장 우선 — 마지막에 선언 */
+.gantt-day.today { background: #e7f0ff; color: var(--primary); font-weight: 600; }
+.gantt-day.today .month { color: var(--primary); }
+.gantt-day .month {
+  display: block;
+  font-size: 9px;
+  color: #99a0ad;
+}
+
+.gantt-row {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.gantt-row:last-child { border-bottom: none; }
+.gantt-row-track {
+  position: relative;
+  height: 100%;
+  /* width matches header total */
+}
+.gantt-row-track .gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #f0f2f6;
+}
+
+.gantt-bar {
+  position: absolute;
+  top: 7px;
+  height: 22px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  border-left: 4px solid var(--cat-color, transparent);
+  /* Stacks above .gantt-arrows (z-index: 0) so arrows pass under bars. */
+  z-index: 1;
+}
+.gantt-bar.dragging { cursor: grabbing; opacity: 0.85; }
+/* Bars that move along during a Shift+drag group move (1-step strong preds). */
+.gantt-bar.group-extra { outline: 2px dashed #1f5fc9; outline-offset: 1px; }
+.gantt-bar.shifted { background: #f59e0b; }
+.gantt-bar.connected-extra { opacity: 0.85; outline: 1px dashed rgba(0,0,0,0.15); }
+.gantt-bar { transition: opacity 0.15s ease; }
+/* While a bar is being hovered (grid carries .hover-active), unrelated bars
+   fade to match the arrow dimming. The hovered bar + bars tied by a dep get
+   the .bar-focus class and stay fully visible. */
+.gantt-grid.hover-active .gantt-bar { opacity: 0.2; }
+.gantt-grid.hover-active .gantt-bar.bar-focus { opacity: 1; }
+
+/* Sticky date focus (header day click → daily-report entry mode).
+   Dim every bar except those whose range covers the focused date. The
+   focused day cell itself is also visually marked. While date focus is
+   active, hover highlight is suppressed so the sticky selection is stable. */
+.gantt-grid.date-focus-active .gantt-bar { opacity: 0.18; cursor: pointer; }
+.gantt-grid.date-focus-active .gantt-bar.date-focus-hit { opacity: 1; cursor: pointer; }
+.gantt-grid.date-focus-active.hover-active .gantt-bar,
+.gantt-grid.date-focus-active.hover-active .gantt-bar.bar-focus {
+  opacity: 0.18; /* override hover effects entirely */
+}
+.gantt-grid.date-focus-active.hover-active .gantt-bar.date-focus-hit {
+  opacity: 1;
+}
+.gantt-day { cursor: pointer; }
+.gantt-day.date-selected {
+  background: #fde68a;
+  font-weight: 700;
+  color: #92400e;
+}
+.gantt-day.date-selected .month { color: #92400e; }
+
+/* Thin overlay drawn at the engine-computed actual range when planned ≠ actual.
+   Sits below the main bar so users can see "the engine wants this here". */
+.gantt-actual-overlay {
+  position: absolute;
+  top: 30px;
+  height: 4px;
+  background: rgba(245, 158, 11, 0.6);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+#expand-connected-btn.active,
+#show-arrows-btn.active,
+#chain-sort-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.gantt-arrows {
+  pointer-events: none;
+  /* Sit behind the bars so arrows pass under (not over) them. */
+  z-index: 0;
+}
+.gantt-arrows path {
+  transition: opacity 0.15s ease, stroke-width 0.15s ease;
+  opacity: 0.85;
+}
+/* When a bar is hovered, only its related arrows stay visible. */
+.gantt-arrows.hover-active path { opacity: 0.12; }
+.gantt-arrows.hover-active path.arrow-focus {
+  opacity: 1;
+  stroke-width: 2.5 !important;
+}
+
+/* Hidden by default — JS toggles when scope = 'all' */
+.all-view-only { display: none; }
+body.scope-all .all-view-only { display: table-cell; }
+body.scope-all .cat-only { display: none !important; }
+
+/* ----- All-reports view ----- */
+#all-reports-view .section-head input[type="search"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  width: 260px;
+}
+.reports-cat-section {
+  margin-bottom: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.reports-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.reports-cat-head .cat-tag {
+  font-size: 14px;
+  padding: 4px 10px;
+}
+.reports-date-group {
+  margin: 10px 0 6px;
+}
+.reports-date-group h4 {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.all-reports-list {
+  margin: 0 0 4px;
+  padding-left: 24px;
+}
+.all-reports-list { list-style: none; padding: 0; margin: 0; }
+.all-reports-list li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.all-reports-list li:hover { background: #f5f7fc; }
+.all-reports-list .report-item-schedules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+/* Gantt-bar styled pill for the schedule this report is tied to. Background
+   takes the schedule's category color so it's visually consistent with the
+   bars on the Gantt chart. */
+.schedule-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.all-reports-list .report-item-body {
+  font-size: 14px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.all-reports-list .report-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  align-items: center;
+}
+.att-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 12px;
+}
+.att-chip:hover { background: #dbe7ff; text-decoration: underline; }
+.cat-tag.mini {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+.other-tags { display: inline-flex; gap: 4px; margin-left: 6px; }
+.gantt-bar .resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: rgba(255,255,255,0.2);
+}
+/* ---- Modifier-click connection mode (Cmd/Ctrl + click bars to link) ---- */
+.gantt-conn-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #f59e0b;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  /* Below modal (z-index 100) but above ordinary content (≤ 5).
+     Modals open while a dep-draft is active (rare) hide the banner;
+     when the modal closes the banner is visible again. */
+  z-index: 50;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.gantt-conn-banner .btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+  padding: 4px 10px;
+}
+.gantt-conn-banner .btn:hover { background: rgba(255, 255, 255, 0.3); }
+.gantt-bar.dep-draft-first {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+  z-index: 5;
+}
+body.dep-drafting .gantt-bar { cursor: crosshair !important; }
+body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
+
+.gantt-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(229, 71, 71, 0.7);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gantt-row-label {
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+  background: rgba(255,255,255,0.6);
+  padding-right: 6px;
+}
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(20, 24, 36, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal-card {
+  background: var(--panel);
+  padding: 20px 22px;
+  border-radius: 10px;
+  width: 420px;
+  max-width: calc(100% - 32px);
+}
+.modal-card h3 { margin: 0 0 14px; font-size: 16px; }
+.modal-card label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.modal-card input,
+.modal-card textarea,
+.modal-card select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text);
+  background: #fff;
+}
+.modal-card .row { display: flex; gap: 10px; }
+.modal-card .row label { flex: 1; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

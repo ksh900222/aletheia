@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(PORT=3000 node src/server.js)",
+      "Bash(curl -fs http://localhost:3000/api/health)",
+      "Bash(curl -s http://localhost:3000/api/health)",
+      "Bash(curl -s -X POST http://localhost:3000/api/categories -H 'Content-Type: application/json' -d '{\"name\":\"핸드폰 카메라\",\"description\":\"카메라 모듈\",\"color\":\"#4f8cff\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/categories -H 'Content-Type: application/json' -d '{\"name\":\"핸드폰 디스플레이\",\"color\":\"#22c55e\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/categories -H 'Content-Type: application/json' -d '{\"name\":\"핸드폰 조립\",\"color\":\"#f59e0b\"}')",
+      "Bash(curl -s http://localhost:3000/api/categories)",
+      "Bash(curl -s -X DELETE http://localhost:3000/api/categories/1 -o /dev/null -w \"del cat1=%{http_code}\\\\n\")",
+      "Bash(curl -s -X DELETE http://localhost:3000/api/categories/2 -o /dev/null -w \"del cat2=%{http_code}\\\\n\")",
+      "Bash(kill b0ui00hhz *)",
+      "Bash(pkill -f 'node src/server.js')",
+      "Bash(lsof -ti:3000)",
+      "Bash(xargs -r kill)",
+      "Bash(curl -s http://localhost:3000/api/schedules)",
+      "Bash(ps -p 54242 -o pid,ppid,etime,command)",
+      "Bash(ps -p 54868 -o pid,ppid,etime,command)",
+      "Bash(kill bljsbea9i *)",
+      "Bash(lsof -ti:3000 -P -sTCP:LISTEN)",
+      "Bash(node -e ' *)",
+      "Bash(kill b2ng0c48h *)",
+      "Bash(awk '/BEGIN:VEVENT/{flag=1; entry=\"\"} flag{entry=entry\"\\\\n\"$0} /END:VEVENT/{flag=0; if \\(entry ~ /20260717/\\) print entry\"\\\\n---\"}' /tmp/kr-ics.txt)",
+      "Bash(node -c public/app.js)",
+      "Bash(node --check public/app.js)",
+      "Bash(node --check src/engine/scheduler.js)",
+      "Bash(sqlite3 /Users/shkim/PycharmProjects/project_planner/data/planner.db \"SELECT id, name FROM categories WHERE name LIKE '%카메라%' OR name LIKE '%센서%'\")"
+    ]
+  }
+}

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project Planner</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Floating banner shown when user is selecting a target bar in connection mode. -->
+  <div id="gantt-conn-banner" class="gantt-conn-banner hidden">
+    <span id="gantt-conn-banner-text"></span>
+    <button type="button" id="gantt-conn-cancel" class="btn">취소 (ESC)</button>
+  </div>
+
+  <header class="topbar">
+    <h1>Project Planner</h1>
+    <span class="topbar-spacer"></span>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <button id="all-view-btn" class="all-view-btn">📊 전체 간트</button>
+      <button id="all-reports-btn" class="all-view-btn">📋 전체 리포트</button>
+      <div class="section-head">
+        <h2>카테고리</h2>
+        <button id="add-category-btn" class="btn btn-primary">+ 추가</button>
+      </div>
+      <ul id="category-list" class="category-list"></ul>
+    </aside>
+
+    <section class="content">
+      <div id="empty-state" class="empty">
+        왼쪽에서 카테고리를 선택하거나 추가해주세요.
+      </div>
+
+      <div id="all-reports-view" class="hidden">
+        <div class="section-head">
+          <div>
+            <h2>전체 리포트</h2>
+            <p id="all-reports-summary" class="muted"></p>
+          </div>
+          <input id="all-reports-search" type="search" placeholder="본문/날짜/태그/스케줄 검색..." />
+        </div>
+        <div id="all-reports-content"></div>
+      </div>
+
+      <div id="category-view" class="hidden">
+        <div class="section-head">
+          <div>
+            <h2 id="cat-title"></h2>
+            <p id="cat-desc" class="muted"></p>
+          </div>
+          <div class="actions cat-only">
+            <button id="edit-category-btn" class="btn">편집</button>
+            <button id="delete-category-btn" class="btn btn-danger">삭제</button>
+          </div>
+        </div>
+
+        <div class="section-head sub">
+          <h3 id="schedule-section-title">스케줄</h3>
+          <div class="schedule-toolbar">
+            <input id="schedule-search" type="search" placeholder="제목 검색..." />
+            <button type="button" id="expand-connected-btn" class="btn cat-only" title="이 카테고리와 의존성으로 연결된 다른 카테고리·스케줄도 함께 표시">연결 포함 OFF</button>
+            <button type="button" id="show-arrows-btn" class="btn" title="간트에서 의존성을 화살표로 표시">화살표 OFF</button>
+            <button type="button" id="chain-sort-btn" class="btn" title="강한 연결로 묶인 항목들을 한 사슬씩 인접하게 배치">체인정렬 OFF</button>
+            <div class="view-toggle">
+              <button type="button" class="btn view-btn active" data-view="list">리스트</button>
+              <button type="button" class="btn view-btn" data-view="gantt">간트</button>
+            </div>
+            <button id="add-schedule-btn" class="btn btn-primary cat-only">+ 스케줄 추가</button>
+          </div>
+        </div>
+
+        <table id="schedule-table" class="schedules resizable">
+          <thead>
+            <tr>
+              <th style="width: 220px">제목</th>
+              <th style="width: 100px" class="all-view-only">카테고리</th>
+              <th style="width: 100px">계획 시작</th>
+              <th style="width: 100px">계획 종료</th>
+              <th style="width: 60px">일수</th>
+              <th style="width: 100px">실제 시작</th>
+              <th style="width: 100px">실제 종료</th>
+              <th style="width: 70px">여유</th>
+              <th style="width: 110px">상태</th>
+              <th style="width: 130px"></th>
+            </tr>
+          </thead>
+          <tbody id="schedule-rows"></tbody>
+        </table>
+
+        <div id="schedule-gantt" class="gantt hidden"></div>
+
+        <div class="cat-only">
+          <div class="section-head sub">
+            <h3>의존성 (이 카테고리 관련)</h3>
+            <button id="add-dependency-btn" class="btn btn-primary">+ 의존성 추가</button>
+          </div>
+          <table id="dependency-table" class="schedules resizable">
+            <thead>
+              <tr>
+                <th style="width: 200px">선행</th>
+                <th style="width: 30px"></th>
+                <th style="width: 200px">현재 (이 카테고리)</th>
+                <th style="width: 30px"></th>
+                <th style="width: 200px">후행</th>
+                <th style="width: 80px">유형</th>
+                <th style="width: 110px">충돌 시</th>
+                <th style="width: 130px"></th>
+              </tr>
+            </thead>
+            <tbody id="dependency-rows"></tbody>
+          </table>
+
+          <div class="section-head sub">
+            <h3>일일 리포트 (이 카테고리 태그된 것)</h3>
+            <div class="schedule-toolbar">
+              <input id="report-search" type="search" placeholder="본문/날짜 검색..." />
+            </div>
+          </div>
+          <table id="report-table" class="schedules resizable">
+            <thead>
+              <tr>
+                <th style="width: 100px">날짜</th>
+                <th style="width: 360px">본문 미리보기</th>
+                <th style="width: 200px">카테고리 태그</th>
+                <th style="width: 80px">첨부</th>
+                <th style="width: 90px"></th>
+              </tr>
+            </thead>
+            <tbody id="report-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Category modal -->
+  <div id="category-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="category-modal-title">카테고리 추가</h3>
+      <form id="category-form">
+        <label>이름<input name="name" required maxlength="100" /></label>
+        <label>설명<textarea name="description" rows="2"></textarea></label>
+        <label>색상<input name="color" type="color" value="#4f8cff" /></label>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Schedule modal -->
+  <div id="schedule-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="schedule-modal-title">스케줄 추가</h3>
+      <form id="schedule-form">
+        <label>제목<input name="title" required maxlength="200" /></label>
+        <label>설명<textarea name="description" rows="2"></textarea></label>
+        <div class="row">
+          <label>시작일<input name="planned_start" type="date" required /></label>
+          <label>종료일<input name="planned_end" type="date" required /></label>
+          <label>계획일수<input name="planned_days" type="number" min="1" step="1" /></label>
+        </div>
+        <label>상태
+          <select name="status">
+            <option value="not_started">not_started</option>
+            <option value="in_progress">in_progress</option>
+            <option value="pending">pending</option>
+            <option value="blocked">blocked</option>
+            <option value="done">done</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dependency modal -->
+  <div id="dependency-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="dependency-modal-title">의존성 추가</h3>
+      <p class="muted" style="margin: 0 0 12px;">
+        <b>선행(먼저 끝남) → 후행(나중에 시작)</b> 방향으로 등록하세요.<br />
+        예) 핸드폰 조립의 경우, 카메라/디스플레이가 <b>선행</b>, 핸드폰이 <b>후행</b>.
+      </p>
+      <form id="dependency-form">
+        <div class="row">
+          <label>선행 종류 (먼저 끝남)
+            <select name="pred_type">
+              <option value="schedule">스케줄</option>
+              <option value="category">카테고리</option>
+            </select>
+          </label>
+          <label>선행 대상
+            <select name="pred_id"></select>
+          </label>
+        </div>
+        <div class="row">
+          <label>후행 종류 (나중에 시작)
+            <select name="succ_type">
+              <option value="schedule">스케줄</option>
+              <option value="category">카테고리</option>
+            </select>
+          </label>
+          <label>후행 대상
+            <select name="succ_id"></select>
+          </label>
+        </div>
+        <div class="row">
+          <label>연결 유형
+            <select name="link_type">
+              <option value="strong">strong (필수: 후행은 선행 이후 시작)</option>
+              <option value="weak">weak (참고: 여유 표시만)</option>
+            </select>
+          </label>
+          <label>충돌 시 (strong)
+            <select name="on_delay">
+              <option value="auto_shift">auto_shift (자동 정렬)</option>
+              <option value="warn_only">warn_only (경고만)</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Report modal -->
+  <div id="report-modal" class="modal hidden">
+    <div class="modal-card report-modal-card">
+      <h3 id="report-modal-title">리포트 작성</h3>
+      <!-- Read-only meta box: shows the linked schedule's category, title,
+           date range, duration, status, and description so the writer has
+           context. Always present (the modal is only entered via Gantt bar
+           click in date-sticky mode, which always supplies a schedule),
+           but hidden when editing a legacy report that has no schedule
+           link (none should exist after the 2026-05-05 reports migration). -->
+      <div id="report-meta-box" class="report-meta-box hidden"></div>
+      <form id="report-form">
+        <div class="row">
+          <label>날짜<input name="report_date" type="date" required /></label>
+        </div>
+        <label>카테고리 태그
+          <div id="report-category-checks" class="checkgrid"></div>
+        </label>
+        <label>본문<textarea name="body" rows="6" placeholder="오늘 진행 사항, 이슈, 다음 할 일 등"></textarea></label>
+
+        <div id="attachments-section" class="hidden">
+          <div class="section-head sub" style="margin-top: 14px;">
+            <h3>첨부</h3>
+          </div>
+          <ul id="attachment-list" class="attachment-list"></ul>
+          <div class="attach-actions">
+            <label class="btn">
+              파일 업로드
+              <input id="attachment-file-input" type="file" hidden />
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>닫기</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dependency CREATE modal (current-anchored, 3-slot) -->
+  <div id="dependency-create-modal" class="modal hidden">
+    <div class="modal-card report-modal-card">
+      <h3>의존성 추가 (선행 / 현재 / 후행)</h3>
+      <p class="muted" style="margin: 0 0 12px;">
+        <b>현재</b> 를 앵커로 그 앞(선행)과 뒤(후행)를 연결합니다.<br />
+        선행만, 또는 후행만 골라도 됩니다 (한 번에 한 개 또는 두 개의 의존성 생성).
+      </p>
+      <form id="dependency-create-form">
+        <fieldset class="dep-side">
+          <legend>선행 (먼저 끝남, 선택)</legend>
+          <div class="row">
+            <label>종류
+              <select name="pred_type">
+                <option value="">— 선택 안 함 —</option>
+                <option value="schedule">스케줄</option>
+                <option value="category">카테고리</option>
+              </select>
+            </label>
+            <label>대상
+              <select name="pred_id"><option value="">—</option></select>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="dep-side current">
+          <legend>현재 (앵커 — 필수)</legend>
+          <div class="row">
+            <label>종류
+              <select name="current_type">
+                <option value="category">카테고리</option>
+                <option value="schedule">스케줄</option>
+              </select>
+            </label>
+            <label>대상
+              <select name="current_id"></select>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="dep-side">
+          <legend>후행 (나중에 시작, 선택)</legend>
+          <div class="row">
+            <label>종류
+              <select name="succ_type">
+                <option value="">— 선택 안 함 —</option>
+                <option value="schedule">스케줄</option>
+                <option value="category">카테고리</option>
+              </select>
+            </label>
+            <label>대상
+              <select name="succ_id"><option value="">—</option></select>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="row">
+          <label>연결 유형 (양 엣지 공유)
+            <select name="link_type">
+              <option value="strong">strong (필수: 후행은 선행 이후 시작)</option>
+              <option value="weak">weak (참고: 여유 표시만)</option>
+            </select>
+          </label>
+          <label>충돌 시 (strong)
+            <select name="on_delay">
+              <option value="auto_shift">auto_shift (자동 정렬)</option>
+              <option value="warn_only">warn_only (경고만)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
