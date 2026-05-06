@@ -4,7 +4,7 @@
 > 상단 섹션(1~6)은 항상 **현재 시점의 최신 상태**를 반영하고, 하단 **§7 타임라인**에 일자·시간 순으로 변경/진행 내역을 누적해 방향성과 진행도를 추적합니다.
 
 - **프로젝트 시작일**: 2026-05-03
-- **마지막 업데이트**: 2026-05-06 21:10
+- **마지막 업데이트**: 2026-05-07 11:00
 - **현재 단계**: 안정화 — SS 시맨틱 / 자동 cascade / 신 리포트 모델 (날짜+스케줄 sticky) / 코드 검토 후속 정리 진행 중
 
 ---
@@ -424,6 +424,62 @@ npm start                # 또는 npm run dev (--watch)
 
 > 새 항목은 **위쪽**에 추가합니다. 각 항목은 `[YYYY-MM-DD HH:MM] 태그 — 내용` 형식.
 > 태그: `REQ`(요구사항) / `PLAN`(계획) / `DECIDE`(결정) / `PROGRESS`(진행) / `CHANGE`(변경)
+
+### 2026-05-07 11:00 · DESIGN — 다크 미니멀 1차 피드백 반영 (design 브랜치)
+사용자 피드백 4건 처리. commit `40c73ac`.
+
+#### 변경
+1. **이모지 제거** (`public/index.html`) — "📊 전체 간트", "📋 전체 리포트" 의 emoji 제거. 텍스트만으로 정돈된 라벨.
+2. **카테고리 swatch — 동그라미 → 세로 컬러 바** (`public/styles.css` `.category-list .swatch`):
+   - 8×8 원 → 3×16 세로 막대 (radius 2). Linear/Notion 류의 미니멀 카테고리 마커 스타일.
+3. **간트 막대 배경 처리** (`public/styles.css` `.gantt-bar`):
+   - 기존: 모든 막대가 `var(--primary)` (골드) 동일 배경 → 흰 글자 가독성 저하 + 카테고리 식별 약함.
+   - 변경: `background: color-mix(in srgb, var(--cat-color, var(--primary)) 28%, var(--panel-3))` — 카테고리 색의 28% 가 어두운 panel-3 위에 wash. 카테고리별로 다른 muted 톤. 좌측 4px 보더는 100% 카테고리 색.
+   - 결과: 막대가 카테고리별로 미묘하게 다른 다크 톤 + 흰 글자 항상 가독성 OK.
+4. **카테고리 색 위 글자 명도 동적 결정** (`public/app.js`):
+   - 새 헬퍼 `inkOn(bgHex)` — perceived luminance (`0.299R + 0.587G + 0.114B`) 가 160 이상이면 `#1a1a1a`, 아니면 `#fff` 반환.
+   - 적용 위치 (5곳, 모두 inline `color:#fff` → `color:${inkOn(bg)}` 로 교체):
+     - L405 all-view 카테고리 셀 cat-tag
+     - L2978 첫 번째 schedule-pill (전체 리포트 본문 상단)
+     - L2978 mini cat-tag (other-tags)
+     - L3033 카테고리 헤더 cat-tag
+     - L3074 schedule 그룹 헤더 schedule-pill
+   - 결과: 사용자가 어떤 카테고리 색을 정해도 글자 가독성 보장.
+
+#### 검증
+- `node --check public/app.js` 통과, CSS 중괄호 184/184 균형.
+- 서버 재시작 + HTTP 200.
+
+### 2026-05-06 21:55 · DESIGN — 다크 미니멀 테마 (design 브랜치)
+사용자 요청: 디자인을 세련되게 변경. branch `design` 에서 작업, 기능 변경 0.
+
+#### 결정
+- **다크 미니멀** 방향 (사용자 선택). 카본 블랙 surface + Aletheia 로고 톤의 골드 액센트.
+- 외부 폰트 미로드 — 시스템 스택 + Pretendard fallback (사내 환경 폰트 차단 대비). 헤더에 `letter-spacing` / `text-transform: uppercase` 로 typography 인상 차별화.
+- 사용자 정의 데이터 색 (카테고리 swatch, 간트 막대 카테고리 색) **불변**.
+
+#### 팔레트
+- BG `#0d0e12` / Panel `#14161c` / Panel-2 `#1b1d25` / Panel-3 `#232631` (3-tier surface)
+- Border `#262932` / Border-strong `#353844`
+- Text `#e8e8eb` / Text-strong `#f5f5f7` / Muted `#8b8d96` / Muted-2 `#5e6068`
+- Primary `#c9a55a` (antique gold) + soft `rgba(201,165,90,0.14)` + ink `#1a1a1a`
+- Danger `#ef6b6b` / Success `#4ade80` / Warning `#f5a524` / Info `#6aa9ff` 각각 14% soft 톤도
+
+#### 변경 (CSS 만)
+- `:root` 에 `color-scheme: dark` (native form 컨트롤 다크), shadow 3-tier, radius 토큰 추가.
+- topbar: 검정 배경 + 골드 wordmark (uppercase + letter-spacing), 브랜드 시그니처 강조.
+- 사이드바/카테고리 리스트: hover 는 panel-2, active 는 골드 wash + 골드 텍스트.
+- 버튼: primary = 골드 fill + black ink, danger = outlined red. focus ring = 골드.
+- 입력/모달: panel BG, focus 시 골드 border + soft glow. 모달 backdrop 더 짙고 blur.
+- Status / link / delay pill: 다크 적응 — 14% soft 배경 + vivid 텍스트.
+- 간트: header `panel-2`, 토요일 navy wash, 일/공휴일 red wash + brighter red, today/date-selected 골드, gridline 거의 안 보이게.
+- 화살표 / 카테고리 색은 그대로 (사용자 데이터).
+- 모든 클래스명/HTML 구조/JS 동작 변경 없음.
+
+#### 검증
+- 중괄호 균형 OK (183/183).
+- 서버 재시작 후 `/styles.css` 200, 25KB 로 정상 served.
+- commit `d84d493` on `design`. 문제 시 `git checkout main` 으로 즉시 복귀 가능.
 
 ### 2026-05-06 21:10 · CHANGE — 전체 리포트 "스케줄별 그룹" 토글
 사용자 요청: 카테고리 안에서 날짜별이 아니라 **스케줄별 → 날짜별** 순으로 그룹화하는 모드 추가.
