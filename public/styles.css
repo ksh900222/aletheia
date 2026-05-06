@@ -519,7 +519,8 @@ html, body {
 
 #expand-connected-btn.active,
 #show-arrows-btn.active,
-#chain-sort-btn.active {
+#chain-sort-btn.active,
+#all-reports-by-schedule-btn.active {
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
@@ -602,6 +603,29 @@ body.scope-all .cat-only { display: none !important; }
   font-size: 13px;
   color: var(--muted);
   font-weight: 600;
+}
+
+/* Schedule-grouped mode: each category section contains schedule blocks,
+   each block has a pill header followed by date sub-groups. Indent the
+   inner date groups so the hierarchy is visible. */
+.reports-sched-group {
+  margin: 12px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid #e5e9f0;
+}
+.reports-sched-head {
+  margin: 4px 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reports-sched-group .reports-date-group {
+  margin: 4px 0 4px 6px;
+}
+.reports-sched-group .reports-date-group h4 {
+  font-size: 12px;
 }
 .all-reports-list {
   margin: 0 0 4px;

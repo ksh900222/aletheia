@@ -4,7 +4,7 @@
 > 상단 섹션(1~6)은 항상 **현재 시점의 최신 상태**를 반영하고, 하단 **§7 타임라인**에 일자·시간 순으로 변경/진행 내역을 누적해 방향성과 진행도를 추적합니다.
 
 - **프로젝트 시작일**: 2026-05-03
-- **마지막 업데이트**: 2026-05-05 16:00
+- **마지막 업데이트**: 2026-05-06 21:10
 - **현재 단계**: 안정화 — SS 시맨틱 / 자동 cascade / 신 리포트 모델 (날짜+스케줄 sticky) / 코드 검토 후속 정리 진행 중
 
 ---
@@ -424,6 +424,30 @@ npm start                # 또는 npm run dev (--watch)
 
 > 새 항목은 **위쪽**에 추가합니다. 각 항목은 `[YYYY-MM-DD HH:MM] 태그 — 내용` 형식.
 > 태그: `REQ`(요구사항) / `PLAN`(계획) / `DECIDE`(결정) / `PROGRESS`(진행) / `CHANGE`(변경)
+
+### 2026-05-06 21:10 · CHANGE — 전체 리포트 "스케줄별 그룹" 토글
+사용자 요청: 카테고리 안에서 날짜별이 아니라 **스케줄별 → 날짜별** 순으로 그룹화하는 모드 추가.
+
+#### 구현
+- `public/index.html`: 전체 리포트 toolbar 에 `#all-reports-by-schedule-btn` 토글 버튼 추가 ("스케줄별 OFF/ON").
+- `public/app.js`:
+  - `state.allReportsBySchedule` 추가, localStorage `allReportsBySchedule` 키로 영속화.
+  - `syncBySchedBtn()` 헬퍼로 active 클래스 + 라벨 동기화.
+  - `renderAllReportsView` 리팩토링:
+    - `buildReportLi(r, sectionCatId, hidePillForScheduleId)` 헬퍼 — 한 리포트 li 생성 (모드 공통).
+    - `appendDateGroups(parent, reports, sectionCatId, hidePillForScheduleId)` — 날짜별 그룹 렌더 (모드 공통).
+    - 카테고리 섹션 안에서 `state.allReportsBySchedule` 분기:
+      - OFF: 기존 카테고리 → 날짜 → 리포트.
+      - ON: 카테고리 → 스케줄 → 날짜 → 리포트. 그룹 키는 `r.schedules` 중 `category_id === cat.id` 인 것만 (다른 카테고리 schedule 의 리포트는 그 카테고리 섹션에서). 스케줄 그룹은 `planned_start ASC, id ASC` 정렬 (간트와 동일 순서). 스케줄 미연결 리포트(레거시)는 "스케줄 없음" 그룹.
+    - 스케줄 그룹 헤더 안에서는 그 스케줄 pill 을 li 의 schedule pill 에서 제거 (`hidePillForScheduleId`) — 헤더에 이미 같은 정보가 있어서.
+- `public/styles.css`:
+  - `.reports-sched-group` (좌측 회색 보더 + 들여쓰기), `.reports-sched-head` (pill + 건수), 안쪽 `.reports-date-group h4` 폰트 살짝 작게.
+  - `#all-reports-by-schedule-btn.active` 를 기존 토글 active 룰 셀렉터에 추가 — primary 배경.
+
+#### 검증
+- `node --check public/app.js` 통과.
+- 기존 카테고리/날짜 모드는 buildReportLi + appendDateGroups 헬퍼로 그대로 동작.
+- 새 모드: 카테고리 안에서 schedule 그룹 → 날짜 그룹 트리 형태.
 
 ### 2026-05-05 16:00 · CHANGE — 다른 PC 이식 준비 (PORT/HOST + engines + README)
 사용자 요청: Windows / Ubuntu 24 LTS 다른 PC 로 옮길 준비.

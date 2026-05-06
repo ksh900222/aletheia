@@ -21,6 +21,7 @@ const state = {
   allReportsQuery: '',    // search query in all-reports view
   allReportsDateFrom: '', // YYYY-MM-DD inclusive lower bound for all-reports view (empty = no bound)
   allReportsDateTo: '',   // YYYY-MM-DD inclusive upper bound for all-reports view (empty = no bound)
+  allReportsBySchedule: false, // when true, group within each category by schedule first, then date
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
   canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
@@ -69,6 +70,7 @@ const els = {
   allReportsView: $('#all-reports-view'),
   allReportsContent: $('#all-reports-content'),
   allReportsSearch: $('#all-reports-search'),
+  allReportsByScheduleBtn: $('#all-reports-by-schedule-btn'),
   allReportsSummary: $('#all-reports-summary'),
   allReportsDateFrom: $('#all-reports-date-from'),
   allReportsDateTo: $('#all-reports-date-to'),
@@ -2929,6 +2931,79 @@ function renderAllReportsView() {
     sections.push({ cat: { id: -1, name: '태그 없음', color: '#9aa1ad' }, reports: noCat });
   }
 
+  // Build one <li> for a report inside the current category section.
+  // sectionCatId lets us hide that category from "other tags" so the user
+  // doesn't see the section's own pill repeated.
+  // hidePillForScheduleId optionally hides one schedule pill (used in
+  // schedule-group mode where the group header already names that schedule).
+  function buildReportLi(r, sectionCatId, hidePillForScheduleId) {
+    const li = document.createElement('li');
+    li.dataset.reportId = String(r.id);
+
+    const preview = (r.body || '').replace(/[ \t]+/g, ' ').trim();
+    const previewHtml = preview
+      ? linkifyHtml(preview)
+      : '<span class="muted">(빈 본문)</span>';
+
+    const attChips = (r.attachments || []).map((a) => {
+      if (a.kind === 'upload') {
+        return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+      }
+      const href = toFileHref(a.path);
+      return `<a class="att-chip" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</a>`;
+    }).join('');
+
+    const otherTags = (r.categories || [])
+      .filter((c) => c.id !== sectionCatId)
+      .map((c) => `<span class="cat-tag mini" style="background:${escapeHtml(c.color || '#9aa1ad')}; color:#fff;">${escapeHtml(c.name)}</span>`)
+      .join('');
+
+    const schedPills = (r.schedules || [])
+      .filter((s) => s.id !== hidePillForScheduleId)
+      .map((s) => {
+        const sCat = state.categories.find((c) => c.id === s.category_id);
+        const bg = (sCat && sCat.color) || '#1f5fc9';
+        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:#fff;">${escapeHtml(s.title)}</span>`;
+      }).join('');
+
+    li.innerHTML = `
+      ${schedPills ? `<div class="report-item-schedules">${schedPills}</div>` : ''}
+      <div class="report-item-body">${previewHtml}</div>
+      <div class="report-item-meta">
+        ${attChips || '<span class="muted">첨부 없음</span>'}
+        ${otherTags ? `<span class="other-tags">${otherTags}</span>` : ''}
+      </div>
+    `;
+    return li;
+  }
+
+  // Render a date-grouped block (used by both modes): h4 header per date +
+  // an <ol> of report items. ASC date order; within a date, ASC by id.
+  function appendDateGroups(parent, reports, sectionCatId, hidePillForScheduleId) {
+    const byDate = new Map();
+    for (const r of reports) {
+      if (!byDate.has(r.report_date)) byDate.set(r.report_date, []);
+      byDate.get(r.report_date).push(r);
+    }
+    const dates = [...byDate.keys()].sort();
+    for (const date of dates) {
+      const dateGroup = document.createElement('div');
+      dateGroup.className = 'reports-date-group';
+      const dateHead = document.createElement('h4');
+      dateHead.textContent = date;
+      dateGroup.appendChild(dateHead);
+
+      const list = document.createElement('ol');
+      list.className = 'all-reports-list';
+      const dayReports = byDate.get(date).slice().sort((a, b) => a.id - b.id);
+      for (const r of dayReports) {
+        list.appendChild(buildReportLi(r, sectionCatId, hidePillForScheduleId));
+      }
+      dateGroup.appendChild(list);
+      parent.appendChild(dateGroup);
+    }
+  }
+
   for (const { cat, reports: catReports } of sections) {
     const section = document.createElement('section');
     section.className = 'reports-cat-section';
@@ -2941,78 +3016,63 @@ function renderAllReportsView() {
     `;
     section.appendChild(head);
 
-    // Group by date. ASC ordering throughout so that the on-screen sequence
-    // matches real-world chronology:
-    //   - Older dates appear above newer ones (e.g. 4/30 before 5/4).
-    //   - Within the same date, the report posted earlier appears above the
-    //     later one (sort by id since auto-increment ≈ creation order).
-    const byDate = new Map();
-    for (const r of catReports) {
-      if (!byDate.has(r.report_date)) byDate.set(r.report_date, []);
-      byDate.get(r.report_date).push(r);
-    }
-    const dates = [...byDate.keys()].sort(); // ASC: oldest first
-
-    for (const date of dates) {
-      const dateGroup = document.createElement('div');
-      dateGroup.className = 'reports-date-group';
-      const dateHead = document.createElement('h4');
-      dateHead.textContent = date;
-      dateGroup.appendChild(dateHead);
-
-      const list = document.createElement('ol');
-      list.className = 'all-reports-list';
-      const dayReports = byDate.get(date).slice().sort((a, b) => a.id - b.id);
-      for (const r of dayReports) {
-        const li = document.createElement('li');
-        li.dataset.reportId = String(r.id);
-
-        // Preserve newlines so multi-line bodies stay multi-line on screen.
-        // CSS `.report-item-body` uses `white-space: pre-wrap` to honor the \n.
-        const preview = (r.body || '').replace(/[ \t]+/g, ' ').trim();
-        const previewHtml = preview
-          ? linkifyHtml(preview)
-          : '<span class="muted">(빈 본문)</span>';
-
-        const attChips = (r.attachments || []).map((a) => {
-          if (a.kind === 'upload') {
-            return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
-          }
-          const href = toFileHref(a.path);
-          return `<a class="att-chip" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</a>`;
-        }).join('');
-
-        // Show OTHER tags (besides the current section's category) so you can
-        // see which categories this report is shared with.
-        const otherTags = (r.categories || [])
-          .filter((c) => c.id !== cat.id)
-          .map((c) => `<span class="cat-tag mini" style="background:${escapeHtml(c.color || '#9aa1ad')}; color:#fff;">${escapeHtml(c.name)}</span>`)
-          .join('');
-
-        // Schedule pills — one per linked schedule, styled like a Gantt bar
-        // (category color background + white text) so the writer can see at
-        // a glance which schedule this report is about. New (sticky-flow)
-        // reports always have at least one schedule; legacy reports without
-        // links omit the pills entirely.
-        const schedPills = (r.schedules || []).map((s) => {
-          const sCat = state.categories.find((c) => c.id === s.category_id);
-          const bg = (sCat && sCat.color) || '#1f5fc9';
-          return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:#fff;">${escapeHtml(s.title)}</span>`;
-        }).join('');
-
-        li.innerHTML = `
-          ${schedPills ? `<div class="report-item-schedules">${schedPills}</div>` : ''}
-          <div class="report-item-body">${previewHtml}</div>
-          <div class="report-item-meta">
-            ${attChips || '<span class="muted">첨부 없음</span>'}
-            ${otherTags ? `<span class="other-tags">${otherTags}</span>` : ''}
-          </div>
-        `;
-        list.appendChild(li);
+    if (state.allReportsBySchedule) {
+      // [schedule → date → reports] tree. A report appears once per linked
+      // schedule that belongs to THIS category (other categories' schedules
+      // for the same report show up under their own category section).
+      // Reports with no linked schedule (legacy data) collect under a single
+      // "스케줄 없음" group.
+      const bySched = new Map(); // schedule.id → { sched, reports[] }
+      const noSched = [];
+      for (const r of catReports) {
+        const inThisCat = (r.schedules || []).filter(
+          (s) => s.category_id === cat.id
+        );
+        if (inThisCat.length === 0) {
+          noSched.push(r);
+          continue;
+        }
+        for (const s of inThisCat) {
+          if (!bySched.has(s.id)) bySched.set(s.id, { sched: s, reports: [] });
+          bySched.get(s.id).reports.push(r);
+        }
       }
-
-      dateGroup.appendChild(list);
-      section.appendChild(dateGroup);
+      const schedGroups = [...bySched.values()].sort((a, b) => {
+        // Order by schedule planned_start ASC, then id — so the on-screen
+        // sequence within a category mirrors the Gantt's chronological flow.
+        const ka = a.sched.planned_start || '9999-12-31';
+        const kb = b.sched.planned_start || '9999-12-31';
+        if (ka !== kb) return ka < kb ? -1 : 1;
+        return a.sched.id - b.sched.id;
+      });
+      for (const { sched, reports: schedReports } of schedGroups) {
+        const schedGroup = document.createElement('div');
+        schedGroup.className = 'reports-sched-group';
+        const schedHead = document.createElement('h3');
+        schedHead.className = 'reports-sched-head';
+        const bg = cat.color || '#1f5fc9';
+        schedHead.innerHTML = `
+          <span class="schedule-pill" style="background:${escapeHtml(bg)};color:#fff;">${escapeHtml(sched.title)}</span>
+          <span class="muted">${schedReports.length}건</span>
+        `;
+        schedGroup.appendChild(schedHead);
+        appendDateGroups(schedGroup, schedReports, cat.id, sched.id);
+        section.appendChild(schedGroup);
+      }
+      if (noSched.length > 0) {
+        const orphan = document.createElement('div');
+        orphan.className = 'reports-sched-group';
+        const orphanHead = document.createElement('h3');
+        orphanHead.className = 'reports-sched-head';
+        orphanHead.innerHTML = `<span class="muted">스케줄 없음 (${noSched.length}건)</span>`;
+        orphan.appendChild(orphanHead);
+        appendDateGroups(orphan, noSched, cat.id, null);
+        section.appendChild(orphan);
+      }
+    } else {
+      // Default mode: [date → reports]. ASC ordering throughout — older
+      // dates above newer; within a date, earlier id (creation) above.
+      appendDateGroups(section, catReports, cat.id, null);
     }
 
     root.appendChild(section);
@@ -3025,6 +3085,23 @@ els.allReportsBtn.addEventListener('click', () => {
 
 els.allReportsSearch.addEventListener('input', (e) => {
   state.allReportsQuery = e.target.value || '';
+  renderAllReportsView();
+});
+
+// 스케줄별 그룹 토글 — 카테고리 안에서 [schedule → date → reports] 트리로 표시.
+// localStorage 에 영속화해 화면 새로고침 후에도 유지.
+state.allReportsBySchedule = localStorage.getItem('allReportsBySchedule') === '1';
+function syncBySchedBtn() {
+  els.allReportsByScheduleBtn.classList.toggle('active', state.allReportsBySchedule);
+  els.allReportsByScheduleBtn.textContent = state.allReportsBySchedule
+    ? '스케줄별 ON'
+    : '스케줄별 OFF';
+}
+syncBySchedBtn();
+els.allReportsByScheduleBtn.addEventListener('click', () => {
+  state.allReportsBySchedule = !state.allReportsBySchedule;
+  localStorage.setItem('allReportsBySchedule', state.allReportsBySchedule ? '1' : '0');
+  syncBySchedBtn();
   renderAllReportsView();
 });
 
