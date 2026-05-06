@@ -1,36 +1,104 @@
+/*
+ * Aletheia — Dark Minimal theme.
+ *
+ * Carbon-black surfaces with subtle elevation tiers, a single gold accent
+ * (matching the wordmark logo), and restrained data-color (status / link
+ * pills) so user-defined category colors on the Gantt remain the loudest
+ * thing on screen. No external fonts — system stack only.
+ */
 * { box-sizing: border-box; }
 
 :root {
-  --bg: #f6f7fb;
-  --panel: #ffffff;
-  --border: #e3e6ee;
-  --text: #1f2330;
-  --muted: #6a7080;
-  --primary: #4f8cff;
-  --primary-hover: #3a78ec;
-  --danger: #e34d4d;
-  --danger-hover: #c93f3f;
+  /* Hint native form controls (date pickers, select dropdowns, scrollbars)
+     to use the OS dark UI instead of light. */
+  color-scheme: dark;
+
+  /* Surfaces — three tiers of "carbon" depth */
+  --bg:        #0d0e12;   /* page background */
+  --panel:     #14161c;   /* primary cards (sidebar, topbar, table, gantt) */
+  --panel-2:   #1b1d25;   /* hover / elevated row / table header */
+  --panel-3:   #232631;   /* extra-elevated (focus / pressed) */
+
+  /* Strokes — almost invisible, only enough to imply structure */
+  --border:        #262932;
+  --border-strong: #353844;
+
+  /* Text */
+  --text:        #e8e8eb;   /* body */
+  --text-strong: #f5f5f7;   /* headings */
+  --muted:       #8b8d96;   /* secondary */
+  --muted-2:     #5e6068;   /* tertiary / placeholders */
+
+  /* Brand accent — antique gold (matches the wordmark logo) */
+  --primary:        #c9a55a;
+  --primary-hover:  #d8b568;
+  --primary-soft:   rgba(201, 165, 90, 0.14);
+  --primary-ink:    #1a1a1a;   /* text color on a gold fill */
+
+  /* Semantic data colors, tuned for dark backgrounds */
+  --danger:         #ef6b6b;
+  --danger-hover:   #f08585;
+  --danger-soft:    rgba(239, 107, 107, 0.14);
+
+  --success:        #4ade80;
+  --success-soft:   rgba(74, 222, 128, 0.14);
+
+  --warning:        #f5a524;
+  --warning-soft:   rgba(245, 165, 36, 0.16);
+
+  --info:           #6aa9ff;
+  --info-soft:      rgba(106, 169, 255, 0.14);
+
+  /* Effects */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.45);
+  --shadow-2: 0 4px 16px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.6);
+  --shadow-3: 0 8px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.7);
+  --radius:   8px;
+  --radius-sm: 6px;
 }
 
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard Variable",
+               "Pretendard", "Segoe UI", "Apple SD Gothic Neo",
                "Noto Sans KR", sans-serif;
+  font-feature-settings: "tnum" 1, "ss01" 1;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* Scrollbars (WebKit + Firefox) — slim and dark */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #4a4d59; background-clip: content-box; }
 
 .topbar {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 24px;
-  background: var(--panel);
+  padding: 12px 28px;
+  background: #0a0b0e;
   border-bottom: 1px solid var(--border);
 }
-.topbar h1 { font-size: 18px; margin: 0; }
+.topbar h1 {
+  font-size: 17px;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  text-transform: uppercase;
+}
 .topbar-spacer { flex: 1; }
 
 .layout {
@@ -45,38 +113,55 @@ html, body {
   padding: 16px;
   overflow-y: auto;
 }
-.content { padding: 24px; overflow-y: auto; }
+.content { padding: 24px 28px; overflow-y: auto; }
 
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-.section-head.sub { margin-top: 24px; }
-.section-head h2 { margin: 0; font-size: 16px; }
-.section-head h3 { margin: 0; font-size: 14px; color: var(--muted); }
+.section-head.sub { margin-top: 28px; }
+.section-head h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-strong);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.section-head h3 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 .all-view-btn {
   display: block;
   width: 100%;
   text-align: left;
   padding: 10px 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #f8f9fc;
+  border-radius: var(--radius);
+  background: var(--panel-2);
   font: inherit;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.all-view-btn:hover { background: #eef3ff; }
+.all-view-btn:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+}
 .all-view-btn.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: rgba(201, 165, 90, 0.4);
 }
 
 .category-list { list-style: none; padding: 0; margin: 0; }
@@ -85,14 +170,20 @@ html, body {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   user-select: none;
+  color: var(--text);
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.category-list li:hover { background: #f0f3fb; }
-.category-list li.active { background: #e7eeff; }
+.category-list li:hover { background: var(--panel-2); }
+.category-list li.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 500;
+}
 .category-list .swatch {
-  width: 10px; height: 10px; border-radius: 50%;
+  width: 8px; height: 8px; border-radius: 50%;
   flex-shrink: 0;
   background: var(--primary);
 }
@@ -101,25 +192,45 @@ html, body {
 
 .btn {
   border: 1px solid var(--border);
-  background: var(--panel);
-  padding: 6px 12px;
-  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.btn:hover { background: #f5f7fc; }
+.btn:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+}
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
 .btn-primary {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-ink);
   border-color: var(--primary);
+  font-weight: 600;
 }
-.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: var(--primary-ink);
+}
 .btn-danger {
-  background: var(--danger);
-  color: #fff;
-  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(239, 107, 107, 0.45);
 }
-.btn-danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
+.btn-danger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger-hover);
+}
 
 .actions { display: flex; gap: 8px; }
 
@@ -134,8 +245,9 @@ html, body {
   border-collapse: collapse;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: var(--shadow-1);
 }
 /* `.schedules.resizable` 은 컬럼 너비를 th 의 인라인 width 에 맞춰 고정시키고
    사용자가 드래그로 조정할 수 있도록 함. table-layout: fixed 로 가지치는 게 핵심 */
@@ -146,11 +258,7 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.schedules.resizable td {
-  overflow: hidden;
-}
-/* Drag handle on the right edge of each th (except the last). Almost invisible
-   until hovered so it doesn't visually pollute the header. */
+.schedules.resizable td { overflow: hidden; }
 .col-resize-handle {
   position: absolute;
   right: 0;
@@ -164,89 +272,101 @@ html, body {
 }
 .col-resize-handle:hover,
 .col-resize-handle.dragging {
-  background: rgba(31, 95, 201, 0.4);
+  background: var(--primary-soft);
 }
 .schedules th, .schedules td {
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   text-align: left;
-  font-size: 14px;
+  font-size: 13.5px;
 }
-.schedules th { background: #f8f9fc; color: var(--muted); font-weight: 600; }
+.schedules th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .schedules tr:last-child td { border-bottom: none; }
+.schedules tbody tr:hover { background: var(--panel-2); }
 
 .status-pill {
   display: inline-block;
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 11.5px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: #eef0f5;
+  background: var(--panel-3);
   color: var(--muted);
   cursor: pointer;
   user-select: none;
-  transition: filter 0.1s ease;
+  font-weight: 500;
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
 }
-.status-pill:hover { filter: brightness(0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.08); }
-.status-pill.in_progress { background: #fff4d9; color: #a06c00; }
-.status-pill.done { background: #e0f5e2; color: #1f7a2c; }
-.status-pill.blocked { background: #fde2e2; color: #b03333; }
+.status-pill:hover { filter: brightness(1.15); }
+.status-pill.in_progress { background: var(--warning-soft); color: var(--warning); }
+.status-pill.done        { background: var(--success-soft); color: var(--success); }
+.status-pill.blocked     { background: var(--danger-soft);  color: var(--danger); }
 .status-pill.not_started {
   background: transparent;
-  color: var(--muted);
-  border: 1px dashed var(--border);
-  padding: 1px 7px;  /* compensate for border */
+  color: var(--muted-2);
+  border: 1px dashed var(--border-strong);
+  padding: 1px 8px;
 }
 
 .hidden { display: none !important; }
 
 .slack-pill {
   display: inline-block;
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 11.5px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: #e7f0ff;
-  color: #1f5fc9;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 500;
 }
-.slack-pill.zero { background: #f1f3f6; color: #99a0ad; }
+.slack-pill.zero { background: var(--panel-3); color: var(--muted-2); }
 
 .link-pill, .delay-pill {
   display: inline-block;
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 11.5px;
+  padding: 2px 9px;
   border-radius: 999px;
   cursor: pointer;
   user-select: none;
-  transition: filter 0.1s ease;
+  font-weight: 500;
+  transition: filter 0.12s ease;
 }
-.link-pill:hover, .delay-pill:hover { filter: brightness(0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.08); }
-.link-pill.strong { background: #ffe4e0; color: #b94334; }
-.link-pill.weak { background: #e6f4ea; color: #1f7a2c; }
-.delay-pill.auto_shift { background: #e7f0ff; color: #1f5fc9; }
-.delay-pill.warn_only { background: #fff4d9; color: #a06c00; }
+.link-pill:hover, .delay-pill:hover { filter: brightness(1.15); }
+.link-pill.strong   { background: var(--danger-soft);  color: var(--danger); }
+.link-pill.weak     { background: var(--success-soft); color: var(--success); }
+.delay-pill.auto_shift { background: var(--info-soft);    color: var(--info); }
+.delay-pill.warn_only  { background: var(--warning-soft); color: var(--warning); }
 
 .shifted-line, .conflict-line { font-size: 13px; line-height: 1.6; }
-.shifted-line::before { content: '↓ '; color: #1f5fc9; }
-.conflict-line::before { content: '⚠ '; color: #c93f3f; }
+.shifted-line::before  { content: '↓ '; color: var(--info); }
+.conflict-line::before { content: '⚠ '; color: var(--danger); }
 
 .report-modal-card { width: 560px; }
 
-/* Read-only context box at the top of the report modal when opened from a
-   Gantt bar click. Shows the linked schedule's metadata so the writer has
-   context without polluting the body field. */
 .report-meta-box {
-  background: #f3f6fb;
-  border: 1px solid #d8e0ec;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin: 0 0 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 0 0 14px;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
-.report-meta-box .meta-row { display: flex; gap: 6px; }
+.report-meta-box .meta-row { display: flex; gap: 8px; }
 .report-meta-box .meta-label {
   flex: 0 0 70px;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 2px;
 }
 .report-meta-box .meta-value { flex: 1; word-break: break-word; }
 .report-meta-box .schedule-cat-pill {
@@ -255,25 +375,28 @@ html, body {
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
-  background: #e7eeff;
-  color: #1f5fc9;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 /* dep-create modal (3-slot anchor form) */
 .dep-side {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
   margin: 0 0 10px;
+  background: var(--panel-2);
 }
 .dep-side legend {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   padding: 0 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .dep-side.current {
-  border-color: var(--primary);
-  background: #f4f8ff;
+  border-color: rgba(201, 165, 90, 0.45);
+  background: var(--primary-soft);
 }
 .dep-side.current legend {
   color: var(--primary);
@@ -287,8 +410,8 @@ html, body {
   margin-top: 4px;
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fafbfd;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
 }
 .checkgrid label {
   display: inline-flex;
@@ -299,16 +422,21 @@ html, body {
   color: var(--text);
   cursor: pointer;
 }
-.checkgrid input[type="checkbox"] { width: auto; margin: 0; }
+.checkgrid input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary);
+}
 
 .cat-tag {
   display: inline-block;
   font-size: 12px;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: #eef3ff;
+  background: var(--primary-soft);
   color: var(--primary);
   margin-right: 4px;
+  font-weight: 500;
 }
 
 .attachment-list { list-style: none; padding: 0; margin: 0 0 8px; }
@@ -322,14 +450,17 @@ html, body {
 }
 .attachment-list li:last-child { border-bottom: none; }
 .attachment-list .att-kind {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 10.5px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: #f1f3f6;
+  background: var(--panel-3);
   color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
 }
-.attachment-list .att-kind.upload { background: #e7f0ff; color: #1f5fc9; }
-.attachment-list .att-kind.local_path { background: #fff4d9; color: #a06c00; }
+.attachment-list .att-kind.upload     { background: var(--info-soft);    color: var(--info); }
+.attachment-list .att-kind.local_path { background: var(--warning-soft); color: var(--warning); }
 .attachment-list .att-name { flex: 1; }
 .attachment-list .att-path { font-size: 11px; color: var(--muted); }
 .attachment-list a { color: var(--primary); text-decoration: none; }
@@ -339,13 +470,12 @@ html, body {
 .attach-actions label.btn { cursor: pointer; }
 
 .report-row { cursor: pointer; }
-.report-row:hover { background: #f5f7fc; }
+.report-row:hover { background: var(--panel-2); }
 .preview-cell {
   max-width: 360px;
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
-  /* Multi-line clamp (up to 5 lines) to keep table rows from getting absurd. */
   display: -webkit-box;
   -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
@@ -358,53 +488,80 @@ html, body {
   align-items: center;
   gap: 8px;
 }
-.schedule-toolbar input[type="search"] {
-  padding: 6px 10px;
+.schedule-toolbar input[type="search"],
+.modal-card input,
+.modal-card textarea,
+.modal-card select,
+#all-reports-view .section-head input[type="search"],
+.all-reports-toolbar .date-filter input[type="date"] {
+  padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
   font: inherit;
-  width: 200px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
+.schedule-toolbar input[type="search"] { width: 200px; }
+.modal-card input::placeholder,
+.modal-card textarea::placeholder,
+.schedule-toolbar input::placeholder,
+#all-reports-view input::placeholder {
+  color: var(--muted-2);
+}
+.schedule-toolbar input[type="search"]:focus,
+.modal-card input:focus,
+.modal-card textarea:focus,
+.modal-card select:focus,
+#all-reports-view .section-head input[type="search"]:focus,
+.all-reports-toolbar .date-filter input[type="date"]:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
 .view-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--panel-2);
 }
 .view-toggle .view-btn {
   border: none;
   border-radius: 0;
-  padding: 6px 12px;
-  background: var(--panel);
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
 }
+.view-toggle .view-btn:hover { background: var(--panel-3); color: var(--text); }
 .view-toggle .view-btn + .view-btn { border-left: 1px solid var(--border); }
 .view-toggle .view-btn.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-ink);
 }
 
 /* ----- Gantt chart ----- */
 .gantt {
   border: 1px solid var(--border);
-  background: #fff;
-  border-radius: 8px;
+  background: var(--panel);
+  border-radius: var(--radius);
   overflow-x: auto;
   user-select: none;
   position: relative;
+  box-shadow: var(--shadow-1);
 }
 .gantt-empty {
   text-align: center;
   color: var(--muted);
   padding: 28px;
 }
-.gantt-grid {
-  position: relative;
-  /* width set inline = days * day-width */
-}
+.gantt-grid { position: relative; }
 .gantt-header {
   display: flex;
   border-bottom: 1px solid var(--border);
-  background: #f8f9fc;
+  background: var(--panel-2);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -419,18 +576,22 @@ html, body {
   color: var(--muted);
   line-height: 1.2;
 }
-/* 토요일: 옅은 파란색 (눈에 띄되 압도하지 않는 정도) */
-.gantt-day.saturday { background: #d6e4f7; }
-/* 일요일/법정공휴일: 옅은 빨간색 (눈에 거슬리지 않게) */
-.gantt-day.holiday { background: #fdecec; color: #b94334; }
-.gantt-day.holiday .month { color: #c98080; }
-/* today 가 가장 우선 — 마지막에 선언 */
-.gantt-day.today { background: #e7f0ff; color: var(--primary); font-weight: 600; }
+/* 토요일 — deep navy wash so it reads as "weekend" without screaming */
+.gantt-day.saturday { background: rgba(106, 169, 255, 0.10); }
+/* 일/공휴일 — deep red wash + brighter red text */
+.gantt-day.holiday  { background: rgba(239, 107, 107, 0.10); color: #ff8a8a; }
+.gantt-day.holiday .month { color: #d96f6f; }
+/* today — gold accent (Aletheia signature) */
+.gantt-day.today {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
 .gantt-day.today .month { color: var(--primary); }
 .gantt-day .month {
   display: block;
   font-size: 9px;
-  color: #99a0ad;
+  color: var(--muted-2);
 }
 
 .gantt-row {
@@ -444,14 +605,13 @@ html, body {
 .gantt-row-track {
   position: relative;
   height: 100%;
-  /* width matches header total */
 }
 .gantt-row-track .gridline {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #f0f2f6;
+  background: rgba(255,255,255,0.03);
 }
 
 .gantt-bar {
@@ -463,56 +623,50 @@ html, body {
   border-radius: 4px;
   padding: 2px 8px;
   font-size: 11px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   cursor: grab;
   display: flex;
   align-items: center;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
   border-left: 4px solid var(--cat-color, transparent);
-  /* Stacks above .gantt-arrows (z-index: 0) so arrows pass under bars. */
   z-index: 1;
+  transition: opacity 0.15s ease;
 }
 .gantt-bar.dragging { cursor: grabbing; opacity: 0.85; }
 /* Bars that move along during a Shift+drag group move (1-step strong preds). */
-.gantt-bar.group-extra { outline: 2px dashed #1f5fc9; outline-offset: 1px; }
-.gantt-bar.shifted { background: #f59e0b; }
-.gantt-bar.connected-extra { opacity: 0.85; outline: 1px dashed rgba(0,0,0,0.15); }
-.gantt-bar { transition: opacity 0.15s ease; }
-/* While a bar is being hovered (grid carries .hover-active), unrelated bars
-   fade to match the arrow dimming. The hovered bar + bars tied by a dep get
-   the .bar-focus class and stay fully visible. */
-.gantt-grid.hover-active .gantt-bar { opacity: 0.2; }
+.gantt-bar.group-extra { outline: 2px dashed var(--primary); outline-offset: 1px; }
+.gantt-bar.shifted { background: var(--warning); color: var(--primary-ink); }
+.gantt-bar.connected-extra { opacity: 0.85; outline: 1px dashed rgba(255,255,255,0.18); }
+
+/* hover focus (related arrows + bars) */
+.gantt-grid.hover-active .gantt-bar { opacity: 0.22; }
 .gantt-grid.hover-active .gantt-bar.bar-focus { opacity: 1; }
 
-/* Sticky date focus (header day click → daily-report entry mode).
-   Dim every bar except those whose range covers the focused date. The
-   focused day cell itself is also visually marked. While date focus is
-   active, hover highlight is suppressed so the sticky selection is stable. */
+/* sticky date focus (header day click → daily-report entry mode) */
 .gantt-grid.date-focus-active .gantt-bar { opacity: 0.18; cursor: pointer; }
 .gantt-grid.date-focus-active .gantt-bar.date-focus-hit { opacity: 1; cursor: pointer; }
 .gantt-grid.date-focus-active.hover-active .gantt-bar,
 .gantt-grid.date-focus-active.hover-active .gantt-bar.bar-focus {
-  opacity: 0.18; /* override hover effects entirely */
+  opacity: 0.18;
 }
 .gantt-grid.date-focus-active.hover-active .gantt-bar.date-focus-hit {
   opacity: 1;
 }
 .gantt-day { cursor: pointer; }
 .gantt-day.date-selected {
-  background: #fde68a;
+  background: var(--primary);
+  color: var(--primary-ink);
   font-weight: 700;
-  color: #92400e;
 }
-.gantt-day.date-selected .month { color: #92400e; }
+.gantt-day.date-selected .month { color: var(--primary-ink); }
 
-/* Thin overlay drawn at the engine-computed actual range when planned ≠ actual.
-   Sits below the main bar so users can see "the engine wants this here". */
 .gantt-actual-overlay {
   position: absolute;
   top: 30px;
   height: 4px;
-  background: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 165, 36, 0.7);
   border-radius: 2px;
   pointer-events: none;
 }
@@ -522,39 +676,30 @@ html, body {
 #chain-sort-btn.active,
 #all-reports-by-schedule-btn.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-ink);
   border-color: var(--primary);
 }
 
 .gantt-arrows {
   pointer-events: none;
-  /* Sit behind the bars so arrows pass under (not over) them. */
   z-index: 0;
 }
 .gantt-arrows path {
   transition: opacity 0.15s ease, stroke-width 0.15s ease;
   opacity: 0.85;
 }
-/* When a bar is hovered, only its related arrows stay visible. */
 .gantt-arrows.hover-active path { opacity: 0.12; }
 .gantt-arrows.hover-active path.arrow-focus {
   opacity: 1;
   stroke-width: 2.5 !important;
 }
 
-/* Hidden by default — JS toggles when scope = 'all' */
 .all-view-only { display: none; }
 body.scope-all .all-view-only { display: table-cell; }
 body.scope-all .cat-only { display: none !important; }
 
 /* ----- All-reports view ----- */
-#all-reports-view .section-head input[type="search"] {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font: inherit;
-  width: 260px;
-}
+#all-reports-view .section-head input[type="search"] { width: 260px; }
 .all-reports-toolbar {
   display: flex;
   align-items: center;
@@ -566,52 +711,46 @@ body.scope-all .cat-only { display: none !important; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-}
-.all-reports-toolbar .date-filter input[type="date"] {
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font: inherit;
-  color: var(--text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .reports-cat-section {
   margin-bottom: 24px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-1);
 }
 .reports-cat-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 .reports-cat-head .cat-tag {
-  font-size: 14px;
-  padding: 4px 10px;
-}
-.reports-date-group {
-  margin: 10px 0 6px;
-}
-.reports-date-group h4 {
-  margin: 6px 0;
   font-size: 13px;
-  color: var(--muted);
+  padding: 4px 12px;
   font-weight: 600;
 }
+.reports-date-group { margin: 10px 0 6px; }
+.reports-date-group h4 {
+  margin: 6px 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
-/* Schedule-grouped mode: each category section contains schedule blocks,
-   each block has a pill header followed by date sub-groups. Indent the
-   inner date groups so the hierarchy is visible. */
 .reports-sched-group {
   margin: 12px 0 6px;
-  padding-left: 8px;
-  border-left: 3px solid #e5e9f0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
 }
 .reports-sched-head {
   margin: 4px 0 2px;
@@ -624,30 +763,23 @@ body.scope-all .cat-only { display: none !important; }
 .reports-sched-group .reports-date-group {
   margin: 4px 0 4px 6px;
 }
-.reports-sched-group .reports-date-group h4 {
-  font-size: 12px;
-}
-.all-reports-list {
-  margin: 0 0 4px;
-  padding-left: 24px;
-}
+.reports-sched-group .reports-date-group h4 { font-size: 11px; }
+
 .all-reports-list { list-style: none; padding: 0; margin: 0; }
 .all-reports-list li {
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   list-style: none;
+  transition: background 0.12s ease;
 }
-.all-reports-list li:hover { background: #f5f7fc; }
+.all-reports-list li:hover { background: var(--panel-2); }
 .all-reports-list .report-item-schedules {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
 }
-/* Gantt-bar styled pill for the schedule this report is tied to. Background
-   takes the schedule's category color so it's visually consistent with the
-   bars on the Gantt chart. */
 .schedule-pill {
   display: inline-block;
   padding: 2px 10px;
@@ -655,10 +787,12 @@ body.scope-all .cat-only { display: none !important; }
   font-size: 12px;
   font-weight: 600;
   line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 .all-reports-list .report-item-body {
   font-size: 14px;
   color: var(--text);
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -666,25 +800,29 @@ body.scope-all .cat-only { display: none !important; }
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   align-items: center;
 }
 .att-chip {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: #eef3ff;
+  background: var(--primary-soft);
   color: var(--primary);
   text-decoration: none;
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  transition: background 0.12s ease;
 }
-.att-chip:hover { background: #dbe7ff; text-decoration: underline; }
+.att-chip:hover { background: rgba(201, 165, 90, 0.24); text-decoration: underline; }
+
 .cat-tag.mini {
   font-size: 11px;
-  padding: 1px 6px;
+  padding: 1px 7px;
 }
 .other-tags { display: inline-flex; gap: 4px; margin-left: 6px; }
+
 .gantt-bar .resize-handle {
   position: absolute;
   right: 0;
@@ -692,37 +830,38 @@ body.scope-all .cat-only { display: none !important; }
   bottom: 0;
   width: 6px;
   cursor: ew-resize;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.18);
 }
+
 /* ---- Modifier-click connection mode (Cmd/Ctrl + click bars to link) ---- */
 .gantt-conn-banner {
   position: fixed;
-  top: 12px;
+  top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  background: #f59e0b;
-  color: #fff;
-  padding: 8px 14px;
-  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-ink);
+  padding: 9px 16px;
+  border-radius: var(--radius);
   font-size: 13px;
+  font-weight: 500;
   display: flex;
   gap: 12px;
   align-items: center;
-  /* Below modal (z-index 100) but above ordinary content (≤ 5).
-     Modals open while a dep-draft is active (rare) hide the banner;
-     when the modal closes the banner is visible again. */
   z-index: 50;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2);
 }
 .gantt-conn-banner .btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
-  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--primary-ink);
+  border-color: rgba(0, 0, 0, 0.3);
+  padding: 4px 12px;
+  font-weight: 600;
 }
-.gantt-conn-banner .btn:hover { background: rgba(255, 255, 255, 0.3); }
+.gantt-conn-banner .btn:hover { background: rgba(0, 0, 0, 0.28); }
+
 .gantt-bar.dep-draft-first {
-  outline: 3px solid #f59e0b;
+  outline: 3px solid var(--primary);
   outline-offset: 2px;
   z-index: 5;
 }
@@ -734,7 +873,7 @@ body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
   top: 0;
   bottom: 0;
   width: 2px;
-  background: rgba(229, 71, 71, 0.7);
+  background: rgba(239, 107, 107, 0.6);
   pointer-events: none;
   z-index: 1;
 }
@@ -749,41 +888,42 @@ body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
   font-size: 12px;
   color: var(--muted);
   pointer-events: none;
-  background: rgba(255,255,255,0.6);
+  background: rgba(20, 22, 28, 0.7);
   padding-right: 6px;
 }
 
 .modal {
   position: fixed; inset: 0;
-  background: rgba(20, 24, 36, 0.45);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
 .modal-card {
   background: var(--panel);
-  padding: 20px 22px;
-  border-radius: 10px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   width: 420px;
   max-width: calc(100% - 32px);
+  box-shadow: var(--shadow-3);
 }
-.modal-card h3 { margin: 0 0 14px; font-size: 16px; }
+.modal-card h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: 0.01em;
+}
 .modal-card label {
   display: block;
-  font-size: 13px;
+  font-size: 11px;
   color: var(--muted);
-  margin-bottom: 10px;
-}
-.modal-card input,
-.modal-card textarea,
-.modal-card select {
-  width: 100%;
-  margin-top: 4px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font: inherit;
-  color: var(--text);
-  background: #fff;
+  margin-bottom: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
 }
 .modal-card .row { display: flex; gap: 10px; }
 .modal-card .row label { flex: 1; }
@@ -791,23 +931,21 @@ body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
-/* Read-only mode (IP not on the write allowlist). The banner pins to the
-   top so the user always sees why their writes are blocked, and the rules
-   below hide the most common write affordances. The server is the actual
-   gatekeeper — these styles are just UX. */
+/* Read-only mode (IP not on the write allowlist). */
 .readonly-banner {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: #fff7d6;
-  color: #5a4a00;
-  border-bottom: 1px solid #e6d27a;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-bottom: 1px solid rgba(245, 165, 36, 0.4);
   padding: 8px 14px;
   font-size: 13px;
   text-align: center;
+  font-weight: 500;
 }
 body.readonly #add-category-btn,
 body.readonly #edit-category-btn,
@@ -822,20 +960,16 @@ body.readonly [data-action="edit-dep"],
 body.readonly .attach-actions {
   display: none !important;
 }
-/* Inline cycle controls in the schedule/dependency lists. Keep them visible
-   (the value itself is information) but drop clickability so non-admins
-   can't toggle status / link_type / on_delay. */
 body.readonly [data-action="cycle-status"],
 body.readonly [data-action="cycle-link"],
 body.readonly [data-action="cycle-delay"] {
   pointer-events: none;
   cursor: default !important;
 }
-/* Disable text inputs/forms in read-only mode so users can't type into
-   modals that they can't submit anyway. */
 body.readonly .modal input,
 body.readonly .modal textarea,
 body.readonly .modal select {
   pointer-events: none;
-  background: #f3f4f7;
+  background: var(--panel-3);
+  color: var(--muted);
 }
