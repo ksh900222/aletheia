@@ -507,6 +507,16 @@ html, body {
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .schedule-toolbar input[type="search"] { width: 200px; }
+/* Modal inputs span the full label width (overrides the default
+   content-width). The 4px margin-top creates breathing room between the
+   label text and its input. Without this, the report body textarea
+   collapses to its `cols` default and looks tiny. */
+.modal-card input,
+.modal-card textarea,
+.modal-card select {
+  width: 100%;
+  margin-top: 4px;
+}
 .modal-card input::placeholder,
 .modal-card textarea::placeholder,
 .schedule-toolbar input::placeholder,
