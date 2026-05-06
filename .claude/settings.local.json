@@ -27,7 +27,8 @@
       "Bash(node -c public/app.js)",
       "Bash(node --check public/app.js)",
       "Bash(node --check src/engine/scheduler.js)",
-      "Bash(sqlite3 /Users/shkim/PycharmProjects/project_planner/data/planner.db \"SELECT id, name FROM categories WHERE name LIKE '%카메라%' OR name LIKE '%센서%'\")"
+      "Bash(sqlite3 /Users/shkim/PycharmProjects/project_planner/data/planner.db \"SELECT id, name FROM categories WHERE name LIKE '%카메라%' OR name LIKE '%센서%'\")",
+      "Bash(node -c src/server.js)"
     ]
   }
 }

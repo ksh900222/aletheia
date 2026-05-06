@@ -21,6 +21,8 @@ const state = {
   allReportsQuery: '',    // search query in all-reports view
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
+  canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
+  clientIp: null,         // remote IP as the server saw us — shown in the read-only banner
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -78,7 +80,18 @@ const els = {
   attachmentFileInput: $('#attachment-file-input'),
 };
 
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 async function api(method, url, body) {
+  // Short-circuit write attempts when the client is known to lack write
+  // permission. The server enforces this regardless, but doing it here too
+  // turns a confusing "HTTP 403" alert into a clear Korean message and
+  // prevents needless network traffic.
+  if (!state.canWrite && !READ_METHODS.has(method.toUpperCase())) {
+    const err = new Error('쓰기 권한이 없습니다 (허용된 IP에서만 가능).');
+    err.status = 403;
+    throw err;
+  }
   const opts = { method, headers: {} };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -88,6 +101,16 @@ async function api(method, url, body) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // If the server tells us we're not on the write allowlist, lock the UI
+    // into read-only mode so subsequent clicks get a friendly message
+    // instead of repeating round-trips.
+    if (res.status === 403 && data && data.error === 'forbidden_write_from_ip') {
+      applyReadOnlyMode(data.ip);
+      const err = new Error('쓰기 권한이 없습니다 (허용된 IP에서만 가능).');
+      err.status = 403;
+      err.body = data;
+      throw err;
+    }
     const err = new Error(data.error || `HTTP ${res.status}`);
     err.status = res.status;
     err.body = data;
@@ -95,6 +118,35 @@ async function api(method, url, body) {
   }
   return data;
 }
+
+function applyReadOnlyMode(ip) {
+  if (!state.canWrite && document.body.classList.contains('readonly')) return;
+  state.canWrite = false;
+  if (ip) state.clientIp = ip;
+  document.body.classList.add('readonly');
+  let banner = document.getElementById('readonly-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'readonly-banner';
+    banner.className = 'readonly-banner';
+    document.body.prepend(banner);
+  }
+  const ipText = state.clientIp ? ` (현재 IP: ${state.clientIp})` : '';
+  banner.textContent = `읽기 전용 모드 — 이 IP에서는 추가/수정/삭제가 불가능합니다.${ipText}`;
+}
+
+// Boot-time IP check. The server is the source of truth; we just mirror its
+// answer into the UI so write affordances can be hidden up front. Any error
+// here is non-fatal — the server will still enforce 403 on actual writes.
+(async () => {
+  try {
+    const me = await fetch('/api/auth/me').then((r) => r.json());
+    state.clientIp = me.ip || null;
+    if (!me.canWrite) applyReadOnlyMode(me.ip);
+  } catch {
+    // Network hiccup at boot: leave canWrite=true; the server still enforces.
+  }
+})();
 
 // Inclusive day count: 5/3 ~ 5/5 → 3 days.
 function daysBetweenInclusive(startIso, endIso) {
@@ -2413,6 +2465,11 @@ function renderReportCategoryChecks(checked) {
     cb.name = 'category_id';
     cb.value = String(c.id);
     cb.checked = checked.includes(c.id);
+    // Read-only viewers can open the report modal to read but must not be
+    // able to flip category tags. `disabled` blocks label/keyboard/click
+    // paths uniformly — `pointer-events: none` on the input alone misses
+    // the label-click path since the input is nested inside its <label>.
+    if (!state.canWrite) cb.disabled = true;
     lbl.append(cb, document.createTextNode(' ' + c.name));
     els.reportCategoryChecks.appendChild(lbl);
   }
