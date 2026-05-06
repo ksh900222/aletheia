@@ -8,3 +8,5 @@ uploads/
 .env
 .claude/
 git-github-guide.html
+data/holidays.json
+md/PROJECT_LOG.md
