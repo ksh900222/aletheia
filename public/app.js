@@ -831,7 +831,21 @@ function renderGantt() {
     bar.title = planShifted
       ? `${catLabel}${s.title}\n계획: ${s.planned_start} ~ ${s.planned_end}\n실제(엔진 조정): ${s.actual_start} ~ ${s.actual_end}`
       : `${catLabel}${s.title}\n${s.planned_start} ~ ${s.planned_end}`;
-    bar.textContent = catLabel + s.title;
+    const barLabelEl = document.createElement('span');
+    barLabelEl.className = 'gantt-bar-label';
+    barLabelEl.textContent = catLabel + s.title;
+    bar.appendChild(barLabelEl);
+    // After the bar is sized, check if the text actually overflows. If it
+    // does, push the label outside so the full title stays readable instead
+    // of being ellipsized to "[기타]...". `scrollWidth > clientWidth` is the
+    // canonical overflow check — works for any bar width / label length, so
+    // it replaces the older "barWidth < 36px" empirical threshold which
+    // missed cases like a 2-day bar (~64px) holding an 8-character title.
+    requestAnimationFrame(() => {
+      if (barLabelEl.scrollWidth > barLabelEl.clientWidth) {
+        bar.classList.add('bar-label-outside');
+      }
+    });
 
     // Optional thin overlay at actual range when shifted, so the user can see
     // where the engine would place this schedule.
