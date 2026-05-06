@@ -175,6 +175,22 @@ function escapeHtml(s) {
   })[m]);
 }
 
+// Pick black or white text for a colored background so the user-defined
+// category color stays readable regardless of how light/dark they made it.
+// WCAG-style perceived luminance: yellow/cyan need black, navy/maroon need
+// white. Threshold chosen empirically; categories close to medium gray
+// (~#808080) tip toward white because the surrounding theme is dark.
+function inkOn(bgHex) {
+  const m = String(bgHex || '').match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return '#fff';
+  const n = m[1];
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  return lum >= 160 ? '#1a1a1a' : '#fff';
+}
+
 // Escape HTML and turn http(s)/file URLs into clickable <a> tags. Used for
 // report body previews so a pasted URL becomes a hyperlink instead of inert
 // text. Trailing punctuation that's commonly adjacent to but not part of a
@@ -385,7 +401,8 @@ function renderSchedules() {
     const planShifted = s.actual_start !== s.planned_start || s.actual_end !== s.planned_end;
     const days = daysBetweenInclusive(s.planned_start, s.planned_end);
     const cat = state.categories.find((c) => c.id === s.category_id);
-    const catCell = `<td class="all-view-only"><span class="cat-tag" style="background:${(cat && cat.color) || '#eef3ff'}; color:#fff;">${escapeHtml((cat && cat.name) || '?')}</span></td>`;
+    const catBg = (cat && cat.color) || '#c9a55a';
+    const catCell = `<td class="all-view-only"><span class="cat-tag" style="background:${catBg}; color:${inkOn(catBg)};">${escapeHtml((cat && cat.name) || '?')}</span></td>`;
     const isExtra = !baseIdSet.has(s.id);
     const tr = document.createElement('tr');
     if (isExtra) tr.style.opacity = '0.85';
@@ -2955,7 +2972,10 @@ function renderAllReportsView() {
 
     const otherTags = (r.categories || [])
       .filter((c) => c.id !== sectionCatId)
-      .map((c) => `<span class="cat-tag mini" style="background:${escapeHtml(c.color || '#9aa1ad')}; color:#fff;">${escapeHtml(c.name)}</span>`)
+      .map((c) => {
+        const bg = c.color || '#9aa1ad';
+        return `<span class="cat-tag mini" style="background:${escapeHtml(bg)}; color:${inkOn(bg)};">${escapeHtml(c.name)}</span>`;
+      })
       .join('');
 
     const schedPills = (r.schedules || [])
@@ -2963,7 +2983,7 @@ function renderAllReportsView() {
       .map((s) => {
         const sCat = state.categories.find((c) => c.id === s.category_id);
         const bg = (sCat && sCat.color) || '#1f5fc9';
-        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:#fff;">${escapeHtml(s.title)}</span>`;
+        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join('');
 
     li.innerHTML = `
@@ -3010,8 +3030,9 @@ function renderAllReportsView() {
 
     const head = document.createElement('div');
     head.className = 'reports-cat-head';
+    const catBg = cat.color || '#9aa1ad';
     head.innerHTML = `
-      <span class="cat-tag" style="background:${escapeHtml(cat.color || '#9aa1ad')}; color:#fff;">${escapeHtml(cat.name)}</span>
+      <span class="cat-tag" style="background:${escapeHtml(catBg)}; color:${inkOn(catBg)};">${escapeHtml(cat.name)}</span>
       <span class="muted">${catReports.length}건</span>
     `;
     section.appendChild(head);
@@ -3050,9 +3071,9 @@ function renderAllReportsView() {
         schedGroup.className = 'reports-sched-group';
         const schedHead = document.createElement('h3');
         schedHead.className = 'reports-sched-head';
-        const bg = cat.color || '#1f5fc9';
+        const bg = cat.color || '#c9a55a';
         schedHead.innerHTML = `
-          <span class="schedule-pill" style="background:${escapeHtml(bg)};color:#fff;">${escapeHtml(sched.title)}</span>
+          <span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(sched.title)}</span>
           <span class="muted">${schedReports.length}건</span>
         `;
         schedGroup.appendChild(schedHead);
