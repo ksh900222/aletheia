@@ -116,6 +116,33 @@ function escapeHtml(s) {
   })[m]);
 }
 
+// Escape HTML and turn http(s)/file URLs into clickable <a> tags. Used for
+// report body previews so a pasted URL becomes a hyperlink instead of inert
+// text. Trailing punctuation that's commonly adjacent to but not part of a
+// URL (.,;:!?)]}) is stripped from the link and re-emitted as plain text.
+function linkifyHtml(s) {
+  const text = String(s ?? '');
+  const urlRe = /\b(?:https?|file):\/\/[^\s<>'"`]+/g;
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = urlRe.exec(text)) !== null) {
+    out += escapeHtml(text.slice(last, m.index));
+    let url = m[0];
+    let trail = '';
+    while (/[.,;:!?)\]}]$/.test(url)) {
+      trail = url.slice(-1) + trail;
+      url = url.slice(0, -1);
+    }
+    const safe = escapeHtml(url);
+    out += `<a href="${safe}" target="_blank" rel="noopener">${safe}</a>`;
+    out += escapeHtml(trail);
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
+}
+
 function renderCategories() {
   els.categoryList.innerHTML = '';
   els.allViewBtn.classList.toggle('active', state.scope === 'all');
@@ -2359,7 +2386,7 @@ function renderReports() {
     tr.dataset.id = r.id;
     tr.innerHTML = `
       <td>${r.report_date}</td>
-      <td class="preview-cell">${escapeHtml(preview) || '<span class="muted">(빈 본문)</span>'}</td>
+      <td class="preview-cell">${linkifyHtml(preview) || '<span class="muted">(빈 본문)</span>'}</td>
       <td>${tags || '<span class="muted">—</span>'}</td>
       <td>${r.attachments.length > 0 ? `${r.attachments.length}개` : '<span class="muted">—</span>'}</td>
       <td class="actions">
@@ -2582,6 +2609,9 @@ els.reportRows.addEventListener('click', async (e) => {
     e.stopPropagation();
     return;
   }
+  // Don't hijack link clicks inside the preview cell — let the browser
+  // navigate to the URL instead of opening the edit modal.
+  if (e.target.closest('a')) return;
   // Click on the row itself → open in edit mode.
   const tr = e.target.closest('tr.report-row');
   if (!tr) return;
@@ -2860,7 +2890,7 @@ function renderAllReportsView() {
         // CSS `.report-item-body` uses `white-space: pre-wrap` to honor the \n.
         const preview = (r.body || '').replace(/[ \t]+/g, ' ').trim();
         const previewHtml = preview
-          ? escapeHtml(preview)
+          ? linkifyHtml(preview)
           : '<span class="muted">(빈 본문)</span>';
 
         const attChips = (r.attachments || []).map((a) => {
