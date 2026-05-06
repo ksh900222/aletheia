@@ -19,6 +19,8 @@ const state = {
   reportQuery: '',        // free-text filter for reports (per-category panel)
   allReports: [],         // all reports across categories (loaded for all-reports view)
   allReportsQuery: '',    // search query in all-reports view
+  allReportsDateFrom: '', // YYYY-MM-DD inclusive lower bound for all-reports view (empty = no bound)
+  allReportsDateTo: '',   // YYYY-MM-DD inclusive upper bound for all-reports view (empty = no bound)
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
   canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
@@ -68,6 +70,9 @@ const els = {
   allReportsContent: $('#all-reports-content'),
   allReportsSearch: $('#all-reports-search'),
   allReportsSummary: $('#all-reports-summary'),
+  allReportsDateFrom: $('#all-reports-date-from'),
+  allReportsDateTo: $('#all-reports-date-to'),
+  allReportsDateClear: $('#all-reports-date-clear'),
   // Reports
   reportRows: $('#report-rows'),
   reportModal: $('#report-modal'),
@@ -2863,17 +2868,36 @@ function reportMatchesQuery(r, q) {
   return false;
 }
 
+// Inclusive date-range filter. Empty bound = unbounded on that side.
+// `report_date` is stored as YYYY-MM-DD so lexicographic comparison with the
+// date input value (also YYYY-MM-DD) is correct without parsing.
+function reportInDateRange(r, from, to) {
+  const d = r.report_date || '';
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
 function renderAllReportsView() {
   const root = els.allReportsContent;
   root.innerHTML = '';
 
   const q = state.allReportsQuery.trim().toLowerCase();
-  const filtered = state.allReports.filter((r) => reportMatchesQuery(r, q));
+  const from = state.allReportsDateFrom;
+  const to = state.allReportsDateTo;
+  const filtered = state.allReports.filter(
+    (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to)
+  );
 
-  els.allReportsSummary.textContent = q
-    ? `검색 결과 ${filtered.length}건 / 전체 ${state.allReports.length}건`
+  const filterActive = Boolean(q || from || to);
+  els.allReportsSummary.textContent = filterActive
+    ? `검색 결과 ${filtered.length}건 / 전체 ${state.allReports.length}건${
+        from || to ? ` · 기간: ${from || '처음'} ~ ${to || '끝'}` : ''
+      }`
     : `전체 ${state.allReports.length}건`;
   els.allReportsSearch.value = state.allReportsQuery;
+  els.allReportsDateFrom.value = state.allReportsDateFrom;
+  els.allReportsDateTo.value = state.allReportsDateTo;
 
   if (filtered.length === 0) {
     const empty = document.createElement('div');
@@ -3001,6 +3025,20 @@ els.allReportsBtn.addEventListener('click', () => {
 
 els.allReportsSearch.addEventListener('input', (e) => {
   state.allReportsQuery = e.target.value || '';
+  renderAllReportsView();
+});
+
+els.allReportsDateFrom.addEventListener('input', (e) => {
+  state.allReportsDateFrom = e.target.value || '';
+  renderAllReportsView();
+});
+els.allReportsDateTo.addEventListener('input', (e) => {
+  state.allReportsDateTo = e.target.value || '';
+  renderAllReportsView();
+});
+els.allReportsDateClear.addEventListener('click', () => {
+  state.allReportsDateFrom = '';
+  state.allReportsDateTo = '';
   renderAllReportsView();
 });
 
