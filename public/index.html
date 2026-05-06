@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Project Planner</title>
+  <title>Aletheia</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -14,7 +14,7 @@
   </div>
 
   <header class="topbar">
-    <h1>Project Planner</h1>
+    <h1>Aletheia</h1>
     <span class="topbar-spacer"></span>
   </header>
 
@@ -40,7 +40,16 @@
             <h2>전체 리포트</h2>
             <p id="all-reports-summary" class="muted"></p>
           </div>
-          <input id="all-reports-search" type="search" placeholder="본문/날짜/태그/스케줄 검색..." />
+          <div class="all-reports-toolbar">
+            <label class="date-filter">시작
+              <input id="all-reports-date-from" type="date" />
+            </label>
+            <label class="date-filter">종료
+              <input id="all-reports-date-to" type="date" />
+            </label>
+            <button type="button" id="all-reports-date-clear" class="btn" title="날짜 범위 해제">날짜 해제</button>
+            <input id="all-reports-search" type="search" placeholder="본문/날짜/태그/스케줄 검색..." />
+          </div>
         </div>
         <div id="all-reports-content"></div>
       </div>

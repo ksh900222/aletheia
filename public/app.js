@@ -19,8 +19,12 @@ const state = {
   reportQuery: '',        // free-text filter for reports (per-category panel)
   allReports: [],         // all reports across categories (loaded for all-reports view)
   allReportsQuery: '',    // search query in all-reports view
+  allReportsDateFrom: '', // YYYY-MM-DD inclusive lower bound for all-reports view (empty = no bound)
+  allReportsDateTo: '',   // YYYY-MM-DD inclusive upper bound for all-reports view (empty = no bound)
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
+  canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
+  clientIp: null,         // remote IP as the server saw us — shown in the read-only banner
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -66,6 +70,9 @@ const els = {
   allReportsContent: $('#all-reports-content'),
   allReportsSearch: $('#all-reports-search'),
   allReportsSummary: $('#all-reports-summary'),
+  allReportsDateFrom: $('#all-reports-date-from'),
+  allReportsDateTo: $('#all-reports-date-to'),
+  allReportsDateClear: $('#all-reports-date-clear'),
   // Reports
   reportRows: $('#report-rows'),
   reportModal: $('#report-modal'),
@@ -78,7 +85,18 @@ const els = {
   attachmentFileInput: $('#attachment-file-input'),
 };
 
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 async function api(method, url, body) {
+  // Short-circuit write attempts when the client is known to lack write
+  // permission. The server enforces this regardless, but doing it here too
+  // turns a confusing "HTTP 403" alert into a clear Korean message and
+  // prevents needless network traffic.
+  if (!state.canWrite && !READ_METHODS.has(method.toUpperCase())) {
+    const err = new Error('쓰기 권한이 없습니다 (허용된 IP에서만 가능).');
+    err.status = 403;
+    throw err;
+  }
   const opts = { method, headers: {} };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -88,6 +106,16 @@ async function api(method, url, body) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // If the server tells us we're not on the write allowlist, lock the UI
+    // into read-only mode so subsequent clicks get a friendly message
+    // instead of repeating round-trips.
+    if (res.status === 403 && data && data.error === 'forbidden_write_from_ip') {
+      applyReadOnlyMode(data.ip);
+      const err = new Error('쓰기 권한이 없습니다 (허용된 IP에서만 가능).');
+      err.status = 403;
+      err.body = data;
+      throw err;
+    }
     const err = new Error(data.error || `HTTP ${res.status}`);
     err.status = res.status;
     err.body = data;
@@ -95,6 +123,35 @@ async function api(method, url, body) {
   }
   return data;
 }
+
+function applyReadOnlyMode(ip) {
+  if (!state.canWrite && document.body.classList.contains('readonly')) return;
+  state.canWrite = false;
+  if (ip) state.clientIp = ip;
+  document.body.classList.add('readonly');
+  let banner = document.getElementById('readonly-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'readonly-banner';
+    banner.className = 'readonly-banner';
+    document.body.prepend(banner);
+  }
+  const ipText = state.clientIp ? ` (현재 IP: ${state.clientIp})` : '';
+  banner.textContent = `읽기 전용 모드 — 이 IP에서는 추가/수정/삭제가 불가능합니다.${ipText}`;
+}
+
+// Boot-time IP check. The server is the source of truth; we just mirror its
+// answer into the UI so write affordances can be hidden up front. Any error
+// here is non-fatal — the server will still enforce 403 on actual writes.
+(async () => {
+  try {
+    const me = await fetch('/api/auth/me').then((r) => r.json());
+    state.clientIp = me.ip || null;
+    if (!me.canWrite) applyReadOnlyMode(me.ip);
+  } catch {
+    // Network hiccup at boot: leave canWrite=true; the server still enforces.
+  }
+})();
 
 // Inclusive day count: 5/3 ~ 5/5 → 3 days.
 function daysBetweenInclusive(startIso, endIso) {
@@ -114,6 +171,33 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (m) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[m]);
+}
+
+// Escape HTML and turn http(s)/file URLs into clickable <a> tags. Used for
+// report body previews so a pasted URL becomes a hyperlink instead of inert
+// text. Trailing punctuation that's commonly adjacent to but not part of a
+// URL (.,;:!?)]}) is stripped from the link and re-emitted as plain text.
+function linkifyHtml(s) {
+  const text = String(s ?? '');
+  const urlRe = /\b(?:https?|file):\/\/[^\s<>'"`]+/g;
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = urlRe.exec(text)) !== null) {
+    out += escapeHtml(text.slice(last, m.index));
+    let url = m[0];
+    let trail = '';
+    while (/[.,;:!?)\]}]$/.test(url)) {
+      trail = url.slice(-1) + trail;
+      url = url.slice(0, -1);
+    }
+    const safe = escapeHtml(url);
+    out += `<a href="${safe}" target="_blank" rel="noopener">${safe}</a>`;
+    out += escapeHtml(trail);
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
 }
 
 function renderCategories() {
@@ -2359,7 +2443,7 @@ function renderReports() {
     tr.dataset.id = r.id;
     tr.innerHTML = `
       <td>${r.report_date}</td>
-      <td class="preview-cell">${escapeHtml(preview) || '<span class="muted">(빈 본문)</span>'}</td>
+      <td class="preview-cell">${linkifyHtml(preview) || '<span class="muted">(빈 본문)</span>'}</td>
       <td>${tags || '<span class="muted">—</span>'}</td>
       <td>${r.attachments.length > 0 ? `${r.attachments.length}개` : '<span class="muted">—</span>'}</td>
       <td class="actions">
@@ -2386,6 +2470,11 @@ function renderReportCategoryChecks(checked) {
     cb.name = 'category_id';
     cb.value = String(c.id);
     cb.checked = checked.includes(c.id);
+    // Read-only viewers can open the report modal to read but must not be
+    // able to flip category tags. `disabled` blocks label/keyboard/click
+    // paths uniformly — `pointer-events: none` on the input alone misses
+    // the label-click path since the input is nested inside its <label>.
+    if (!state.canWrite) cb.disabled = true;
     lbl.append(cb, document.createTextNode(' ' + c.name));
     els.reportCategoryChecks.appendChild(lbl);
   }
@@ -2582,6 +2671,9 @@ els.reportRows.addEventListener('click', async (e) => {
     e.stopPropagation();
     return;
   }
+  // Don't hijack link clicks inside the preview cell — let the browser
+  // navigate to the URL instead of opening the edit modal.
+  if (e.target.closest('a')) return;
   // Click on the row itself → open in edit mode.
   const tr = e.target.closest('tr.report-row');
   if (!tr) return;
@@ -2776,17 +2868,36 @@ function reportMatchesQuery(r, q) {
   return false;
 }
 
+// Inclusive date-range filter. Empty bound = unbounded on that side.
+// `report_date` is stored as YYYY-MM-DD so lexicographic comparison with the
+// date input value (also YYYY-MM-DD) is correct without parsing.
+function reportInDateRange(r, from, to) {
+  const d = r.report_date || '';
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
 function renderAllReportsView() {
   const root = els.allReportsContent;
   root.innerHTML = '';
 
   const q = state.allReportsQuery.trim().toLowerCase();
-  const filtered = state.allReports.filter((r) => reportMatchesQuery(r, q));
+  const from = state.allReportsDateFrom;
+  const to = state.allReportsDateTo;
+  const filtered = state.allReports.filter(
+    (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to)
+  );
 
-  els.allReportsSummary.textContent = q
-    ? `검색 결과 ${filtered.length}건 / 전체 ${state.allReports.length}건`
+  const filterActive = Boolean(q || from || to);
+  els.allReportsSummary.textContent = filterActive
+    ? `검색 결과 ${filtered.length}건 / 전체 ${state.allReports.length}건${
+        from || to ? ` · 기간: ${from || '처음'} ~ ${to || '끝'}` : ''
+      }`
     : `전체 ${state.allReports.length}건`;
   els.allReportsSearch.value = state.allReportsQuery;
+  els.allReportsDateFrom.value = state.allReportsDateFrom;
+  els.allReportsDateTo.value = state.allReportsDateTo;
 
   if (filtered.length === 0) {
     const empty = document.createElement('div');
@@ -2860,7 +2971,7 @@ function renderAllReportsView() {
         // CSS `.report-item-body` uses `white-space: pre-wrap` to honor the \n.
         const preview = (r.body || '').replace(/[ \t]+/g, ' ').trim();
         const previewHtml = preview
-          ? escapeHtml(preview)
+          ? linkifyHtml(preview)
           : '<span class="muted">(빈 본문)</span>';
 
         const attChips = (r.attachments || []).map((a) => {
@@ -2914,6 +3025,20 @@ els.allReportsBtn.addEventListener('click', () => {
 
 els.allReportsSearch.addEventListener('input', (e) => {
   state.allReportsQuery = e.target.value || '';
+  renderAllReportsView();
+});
+
+els.allReportsDateFrom.addEventListener('input', (e) => {
+  state.allReportsDateFrom = e.target.value || '';
+  renderAllReportsView();
+});
+els.allReportsDateTo.addEventListener('input', (e) => {
+  state.allReportsDateTo = e.target.value || '';
+  renderAllReportsView();
+});
+els.allReportsDateClear.addEventListener('click', () => {
+  state.allReportsDateFrom = '';
+  state.allReportsDateTo = '';
   renderAllReportsView();
 });
 

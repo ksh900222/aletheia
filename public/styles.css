@@ -554,6 +554,27 @@ body.scope-all .cat-only { display: none !important; }
   font: inherit;
   width: 260px;
 }
+.all-reports-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.all-reports-toolbar .date-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.all-reports-toolbar .date-filter input[type="date"] {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text);
+}
 .reports-cat-section {
   margin-bottom: 24px;
   background: var(--panel);
@@ -747,4 +768,50 @@ body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* Read-only mode (IP not on the write allowlist). The banner pins to the
+   top so the user always sees why their writes are blocked, and the rules
+   below hide the most common write affordances. The server is the actual
+   gatekeeper — these styles are just UX. */
+.readonly-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #fff7d6;
+  color: #5a4a00;
+  border-bottom: 1px solid #e6d27a;
+  padding: 8px 14px;
+  font-size: 13px;
+  text-align: center;
+}
+body.readonly #add-category-btn,
+body.readonly #edit-category-btn,
+body.readonly #delete-category-btn,
+body.readonly #add-schedule-btn,
+body.readonly #add-dependency-btn,
+body.readonly .btn-primary,
+body.readonly .btn-danger,
+body.readonly [data-action="delete-report"],
+body.readonly [data-action="edit-schedule"],
+body.readonly [data-action="edit-dep"],
+body.readonly .attach-actions {
+  display: none !important;
+}
+/* Inline cycle controls in the schedule/dependency lists. Keep them visible
+   (the value itself is information) but drop clickability so non-admins
+   can't toggle status / link_type / on_delay. */
+body.readonly [data-action="cycle-status"],
+body.readonly [data-action="cycle-link"],
+body.readonly [data-action="cycle-delay"] {
+  pointer-events: none;
+  cursor: default !important;
+}
+/* Disable text inputs/forms in read-only mode so users can't type into
+   modals that they can't submit anyway. */
+body.readonly .modal input,
+body.readonly .modal textarea,
+body.readonly .modal select {
+  pointer-events: none;
+  background: #f3f4f7;
 }
