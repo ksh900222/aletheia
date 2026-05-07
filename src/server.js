@@ -26,7 +26,7 @@ app.use(express.json({ limit: '1mb' }));
 // set and restart the server.
 const WRITE_ALLOWLIST = new Set([
   '10.115.41.127',
-  // '10.115.33.155', // 임시 비활성화 — 다시 권한을 주려면 주석 해제
+  '10.115.33.155', // 임시 비활성화 — 다시 권한을 주려면 주석 해제
   '10.115.147.185',
   // Loopback included so the operator can administer from the host machine
   // itself. Remove these two lines if local writes should also be blocked.

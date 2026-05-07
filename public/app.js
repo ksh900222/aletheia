@@ -811,6 +811,9 @@ function renderGantt() {
     bar.className = 'gantt-bar';
     if (planShifted) bar.classList.add('shifted');
     if (!baseIdSet.has(s.id)) bar.classList.add('connected-extra');
+    // status-{value} drives the right-edge color (see .gantt-bar .resize-handle
+    // rules in CSS) so each bar visibly shows done/in_progress/blocked/etc.
+    if (s.status) bar.classList.add('status-' + s.status);
     // Sticky date focus: highlight bars whose planned range covers the date.
     if (
       state.dateFocus &&
