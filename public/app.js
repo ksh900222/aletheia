@@ -75,6 +75,8 @@ const els = {
   allReportsDateFrom: $('#all-reports-date-from'),
   allReportsDateTo: $('#all-reports-date-to'),
   allReportsDateClear: $('#all-reports-date-clear'),
+  allReportsOwner: $('#all-reports-owner'),
+  allReportsOwnerWrap: $('#all-reports-owner-wrap'),
   // Reports
   reportRows: $('#report-rows'),
   reportModal: $('#report-modal'),
@@ -243,6 +245,38 @@ function renderCategories() {
     li.addEventListener('click', () => selectCategory(c.id));
     els.categoryList.appendChild(li);
   }
+
+  // Team-mode: list peer categories below own ones, grouped by owner. They are
+  // labelled with "| <owner>" suffix and not clickable (read-only group; the
+  // integrated views live in 전체 간트 / 전체 리포트).
+  if (teamOn() && state.team.merged.categories.length > 0) {
+    const divider = document.createElement('li');
+    divider.className = 'muted team-cat-divider';
+    divider.textContent = '── 팀원 카테고리 ──';
+    divider.style.cursor = 'default';
+    divider.style.pointerEvents = 'none';
+    divider.style.fontSize = '11px';
+    divider.style.paddingTop = '8px';
+    els.categoryList.appendChild(divider);
+    for (const c of state.team.merged.categories) {
+      const li = document.createElement('li');
+      li.classList.add('team-readonly');
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      if (c.color) swatch.style.background = c.color;
+      const wrapper = document.createElement('span');
+      wrapper.style.display = 'flex';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.flex = '1';
+      const name = document.createElement('span');
+      name.textContent = c.name;
+      wrapper.appendChild(name);
+      wrapper.insertAdjacentHTML('beforeend', teamOwnerSuffix(c.owner));
+      li.append(swatch, wrapper);
+      els.categoryList.appendChild(li);
+    }
+  }
 }
 
 function renderCategoryView() {
@@ -342,8 +376,13 @@ function effectiveSchedules() {
   let base;
   let baseIdSet;
   if (state.scope === 'all') {
-    base = state.allSchedules;
+    base = state.allSchedules.slice();
     baseIdSet = new Set(base.map((s) => s.id));
+    // Team mode: append peer schedules. They keep numeric ids but carry an
+    // `owner` field so renderers and lookups can distinguish them.
+    if (teamOn() && state.team.merged.schedules.length > 0) {
+      base = base.concat(state.team.merged.schedules);
+    }
   } else {
     base = state.schedules;
     baseIdSet = new Set(base.map((s) => s.id));
@@ -358,6 +397,22 @@ function effectiveSchedules() {
   }
   return { schedules: base, baseIdSet };
 }
+
+// Look up a category for a schedule, choosing the right pool based on whether
+// the schedule belongs to a team peer or to the current user.
+function findCategoryForSchedule(s) {
+  if (s.owner) {
+    return state.team.merged.categories.find(
+      (c) => c.id === s.category_id && c.owner === s.owner
+    );
+  }
+  return state.categories.find((c) => c.id === s.category_id);
+}
+
+// Composite key uniquely identifies a schedule across own + team space. Own
+// schedules use empty owner; team schedules carry the peer's display name.
+function scheduleKey(s) { return `${s.owner || ''}:${s.id}`; }
+function depEndpointKey(owner, id) { return `${owner || ''}:${id}`; }
 
 function filteredSchedules() {
   return effectiveSchedules().schedules;
@@ -394,20 +449,34 @@ function renderSchedules() {
     return;
   }
   for (const s of visible) {
+    const isTeam = !!s.owner;
     const slack = s.slack_days || 0;
     const slackHtml = slack > 0
       ? `<span class="slack-pill">+${slack}일</span>`
       : `<span class="slack-pill zero">—</span>`;
     const planShifted = s.actual_start !== s.planned_start || s.actual_end !== s.planned_end;
     const days = daysBetweenInclusive(s.planned_start, s.planned_end);
-    const cat = state.categories.find((c) => c.id === s.category_id);
+    const cat = findCategoryForSchedule(s);
     const catBg = (cat && cat.color) || '#c9a55a';
     const catCell = `<td class="all-view-only"><span class="cat-tag" style="background:${catBg}; color:${inkOn(catBg)};">${escapeHtml((cat && cat.name) || '?')}</span></td>`;
-    const isExtra = !baseIdSet.has(s.id);
+    const isExtra = !isTeam && !baseIdSet.has(s.id);
     const tr = document.createElement('tr');
     if (isExtra) tr.style.opacity = '0.85';
+    if (isTeam) tr.classList.add('team-readonly');
+    const titleHtml = isTeam
+      ? `${escapeHtml(s.title)}${teamOwnerSuffix(s.owner)}`
+      : `${escapeHtml(s.title)}${isExtra ? ' <span class="muted" title="연결된 항목">·연결</span>' : ''}`;
+    const statusCell = isTeam
+      ? `<td><span class="status-pill ${s.status}">${s.status}</span></td>`
+      : `<td><span class="status-pill ${s.status}" data-action="cycle-status" data-id="${s.id}" role="button" title="클릭하여 다음 상태로 변경">${s.status}</span></td>`;
+    const actionsCell = isTeam
+      ? `<td class="actions"></td>`
+      : `<td class="actions">
+        <button class="btn" data-action="edit-schedule" data-id="${s.id}">편집</button>
+        <button class="btn btn-danger" data-action="delete-schedule" data-id="${s.id}">삭제</button>
+      </td>`;
     tr.innerHTML = `
-      <td>${escapeHtml(s.title)}${isExtra ? ' <span class="muted" title="연결된 항목">·연결</span>' : ''}</td>
+      <td>${titleHtml}</td>
       ${catCell}
       <td>${s.planned_start}</td>
       <td>${s.planned_end}</td>
@@ -415,11 +484,8 @@ function renderSchedules() {
       <td>${planShifted ? `<b>${s.actual_start}</b>` : s.actual_start || ''}</td>
       <td>${planShifted ? `<b>${s.actual_end}</b>` : s.actual_end || ''}</td>
       <td>${slackHtml}</td>
-      <td><span class="status-pill ${s.status}" data-action="cycle-status" data-id="${s.id}" role="button" title="클릭하여 다음 상태로 변경">${s.status}</span></td>
-      <td class="actions">
-        <button class="btn" data-action="edit-schedule" data-id="${s.id}">편집</button>
-        <button class="btn btn-danger" data-action="delete-schedule" data-id="${s.id}">삭제</button>
-      </td>
+      ${statusCell}
+      ${actionsCell}
     `;
     els.scheduleRows.appendChild(tr);
   }
@@ -515,14 +581,21 @@ function isHoliday(date) {
 //      싱글톤(고립 항목)도 같은 키로 묶음 사이에 자연스럽게 끼움.
 // Weak edges 는 방향성·연결성 모두에서 무시 (non-directional sibling marker).
 function topoSortForGantt(visible) {
-  const ids = visible.map((s) => s.id);
+  // Use composite (owner, id) keys so own and team schedules sharing the same
+  // numeric id don't collide and both participate in chain sort.
+  const ids = visible.map((s) => scheduleKey(s));
   const idSet = new Set(ids);
-  const byId = new Map(visible.map((s) => [s.id, s]));
-  const idsForRef = (type, id) => {
-    if (type === 'schedule') return [id];
+  const byId = new Map(visible.map((s) => [scheduleKey(s), s]));
+  const idsForRef = (type, id, owner) => {
+    if (type === 'schedule') return [depEndpointKey(owner, id)];
+    if (owner) {
+      return state.team.merged.schedules
+        .filter((s) => s.category_id === id && s.owner === owner)
+        .map(scheduleKey);
+    }
     return state.allSchedules
       .filter((s) => s.category_id === id)
-      .map((s) => s.id);
+      .map(scheduleKey);
   };
 
   // Adjacency maps (directed for topo, undirected for components).
@@ -532,10 +605,14 @@ function topoSortForGantt(visible) {
     directed.set(id, new Set());
     undirected.set(id, new Set());
   }
-  for (const d of state.dependencies) {
+  const allDeps = teamOn()
+    ? state.dependencies.concat(state.team.merged.dependencies)
+    : state.dependencies;
+  for (const d of allDeps) {
     if (d.link_type !== 'strong') continue;
-    const ps = idsForRef(d.pred_type, d.pred_id);
-    const qs = idsForRef(d.succ_type, d.succ_id);
+    const owner = d.owner || '';
+    const ps = idsForRef(d.pred_type, d.pred_id, owner);
+    const qs = idsForRef(d.succ_type, d.succ_id, owner);
     for (const p of ps) {
       if (!idSet.has(p)) continue;
       for (const q of qs) {
@@ -825,18 +902,30 @@ function renderGantt() {
     if (state.depDraft && state.depDraft.scheduleId === s.id) {
       bar.classList.add('dep-draft-first');
     }
-    const cat = state.categories.find((c) => c.id === s.category_id);
+    const cat = findCategoryForSchedule(s);
     if (cat && cat.color) bar.style.setProperty('--cat-color', cat.color);
     bar.style.left = barLeft + 'px';
     bar.style.width = barWidth + 'px';
     bar.dataset.scheduleId = String(s.id);
+    if (s.owner) {
+      bar.classList.add('team-readonly');
+      bar.dataset.owner = s.owner;
+      // team items aren't "extras" in the dependency sense — clear that styling
+      bar.classList.remove('connected-extra');
+    }
     const catLabel = cat ? `[${cat.name}] ` : '';
+    const ownerForTitle = s.owner ? ` · 소유자: ${s.owner}` : '';
     bar.title = planShifted
-      ? `${catLabel}${s.title}\n계획: ${s.planned_start} ~ ${s.planned_end}\n실제(엔진 조정): ${s.actual_start} ~ ${s.actual_end}`
-      : `${catLabel}${s.title}\n${s.planned_start} ~ ${s.planned_end}`;
+      ? `${catLabel}${s.title}${ownerForTitle}\n계획: ${s.planned_start} ~ ${s.planned_end}\n실제(엔진 조정): ${s.actual_start} ~ ${s.actual_end}`
+      : `${catLabel}${s.title}${ownerForTitle}\n${s.planned_start} ~ ${s.planned_end}`;
     const barLabelEl = document.createElement('span');
     barLabelEl.className = 'gantt-bar-label';
-    barLabelEl.textContent = catLabel + s.title;
+    if (s.owner) {
+      barLabelEl.innerHTML =
+        escapeHtml(catLabel + s.title) + teamOwnerSuffix(s.owner);
+    } else {
+      barLabelEl.textContent = catLabel + s.title;
+    }
     bar.appendChild(barLabelEl);
     // After the bar is sized, check if the text actually overflows. If it
     // does, push the label outside so the full title stays readable instead
@@ -891,7 +980,7 @@ function renderGantt() {
       const left = startIdx * GANTT_DAY_WIDTH;
       const right = (endIdx + 1) * GANTT_DAY_WIDTH;
       const midY = headerHeight + i * GANTT_ROW_H + GANTT_BAR_TOP + GANTT_BAR_H / 2;
-      positions.set(s.id, { left, right, midY });
+      positions.set(scheduleKey(s), { left, right, midY });
     }
     drawDependencyArrows(grid, positions, totalWidth, headerHeight + visible.length * GANTT_ROW_H);
   }
@@ -916,13 +1005,24 @@ function renderGantt() {
 // used to color arrows so that overlapping lines from different sources
 // remain visually distinguishable. Falls back to the primary blue when no
 // color is set on the category.
-function categoryColorFor(type, id) {
+function categoryColorFor(type, id, owner) {
   let cat = null;
   if (type === 'category') {
-    cat = state.categories.find((c) => c.id === id);
+    if (owner) {
+      cat = state.team.merged.categories.find((c) => c.id === id && c.owner === owner);
+    } else {
+      cat = state.categories.find((c) => c.id === id);
+    }
   } else if (type === 'schedule') {
-    const s = state.allSchedules.find((x) => x.id === id);
-    if (s) cat = state.categories.find((c) => c.id === s.category_id);
+    if (owner) {
+      const s = state.team.merged.schedules.find((x) => x.id === id && x.owner === owner);
+      if (s) cat = state.team.merged.categories.find(
+        (c) => c.id === s.category_id && c.owner === owner
+      );
+    } else {
+      const s = state.allSchedules.find((x) => x.id === id);
+      if (s) cat = state.categories.find((c) => c.id === s.category_id);
+    }
   }
   return (cat && cat.color) || '#1f5fc9';
 }
@@ -967,41 +1067,52 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
     return id;
   }
 
+  // Index schedules by composite (owner, category_id) so a dep referencing a
+  // category resolves to the right peer's schedules in that category.
   const schedulesByCat = new Map();
-  for (const s of state.allSchedules) {
-    if (!schedulesByCat.has(s.category_id)) schedulesByCat.set(s.category_id, []);
-    schedulesByCat.get(s.category_id).push(s.id);
+  function pushSchedToCat(s) {
+    const key = depEndpointKey(s.owner, s.category_id);
+    if (!schedulesByCat.has(key)) schedulesByCat.set(key, []);
+    schedulesByCat.get(key).push(scheduleKey(s));
+  }
+  for (const s of state.allSchedules) pushSchedToCat(s);
+  if (teamOn()) {
+    for (const s of state.team.merged.schedules) pushSchedToCat(s);
   }
 
-  function pickPredScheduleId(d) {
+  function pickPredScheduleKey(d) {
+    const owner = d.owner || '';
     if (d.pred_type === 'schedule') {
-      return positions.has(d.pred_id) ? d.pred_id : null;
+      const k = depEndpointKey(owner, d.pred_id);
+      return positions.has(k) ? k : null;
     }
-    let bestId = null;
+    let bestKey = null;
     let bestRight = -Infinity;
-    for (const id of (schedulesByCat.get(d.pred_id) || [])) {
-      const p = positions.get(id);
+    for (const k of (schedulesByCat.get(depEndpointKey(owner, d.pred_id)) || [])) {
+      const p = positions.get(k);
       if (p && p.right > bestRight) {
         bestRight = p.right;
-        bestId = id;
+        bestKey = k;
       }
     }
-    return bestId;
+    return bestKey;
   }
-  function pickSuccScheduleId(d) {
+  function pickSuccScheduleKey(d) {
+    const owner = d.owner || '';
     if (d.succ_type === 'schedule') {
-      return positions.has(d.succ_id) ? d.succ_id : null;
+      const k = depEndpointKey(owner, d.succ_id);
+      return positions.has(k) ? k : null;
     }
-    let bestId = null;
+    let bestKey = null;
     let bestLeft = Infinity;
-    for (const id of (schedulesByCat.get(d.succ_id) || [])) {
-      const p = positions.get(id);
+    for (const k of (schedulesByCat.get(depEndpointKey(owner, d.succ_id)) || [])) {
+      const p = positions.get(k);
       if (p && p.left < bestLeft) {
         bestLeft = p.left;
-        bestId = id;
+        bestKey = k;
       }
     }
-    return bestId;
+    return bestKey;
   }
 
   // Two passes so weak (dashed) edges are drawn AFTER strong (solid) ones,
@@ -1009,11 +1120,11 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
   // get a small vertical offset so they remain visually distinguishable when
   // they share the same pred/succ pair as a strong edge.
   function drawOne(d, weakYOffset) {
-    const predId = pickPredScheduleId(d);
-    const succId = pickSuccScheduleId(d);
-    if (!predId || !succId) return;
-    const p = positions.get(predId);
-    const s = positions.get(succId);
+    const predKey = pickPredScheduleKey(d);
+    const succKey = pickSuccScheduleKey(d);
+    if (!predKey || !succKey) return;
+    const p = positions.get(predKey);
+    const s = positions.get(succKey);
     if (!p || !s) return;
 
     const yOff = d.link_type === 'weak' ? weakYOffset : 0;
@@ -1030,12 +1141,13 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
       path = `M ${x1} ${y1} L ${x1 + off} ${y1} L ${x1 + off} ${midY} L ${x2 - off} ${midY} L ${x2 - off} ${y2} L ${x2 - 2} ${y2}`;
     }
 
-    const color = categoryColorFor(d.pred_type, d.pred_id);
+    const color = categoryColorFor(d.pred_type, d.pred_id, d.owner);
     const el = document.createElementNS(NS, 'path');
     el.setAttribute('d', path);
     el.setAttribute('fill', 'none');
     el.setAttribute('stroke', color);
     el.dataset.depId = String(d.id);
+    if (d.owner) el.dataset.owner = d.owner;
     if (d.link_type === 'strong') {
       el.setAttribute('stroke-width', '1.8');
       el.setAttribute('marker-end', `url(#${ensureMarker(color)})`);
@@ -1048,13 +1160,19 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
     svg.appendChild(el);
   }
 
+  // Combine own + team dependencies. Team deps are tagged with `owner` so
+  // the key-based positions lookup resolves to the right peer's bars.
+  const allDeps = teamOn()
+    ? state.dependencies.concat(state.team.merged.dependencies)
+    : state.dependencies;
+
   // Pass 1: strong edges (no offset).
-  for (const d of state.dependencies) {
+  for (const d of allDeps) {
     if (d.link_type === 'strong') drawOne(d, 0);
   }
   // Pass 2: weak edges, drawn on top with a +6px vertical offset so an
   // overlapping strong line doesn't obscure them.
-  for (const d of state.dependencies) {
+  for (const d of allDeps) {
     if (d.link_type === 'weak') drawOne(d, 6);
   }
 
@@ -1287,6 +1405,8 @@ function directStrongSchedulePredecessors(schedule) {
 
 function attachBarDragHandlers(bar, schedule) {
   bar.addEventListener('mousedown', (e) => {
+    // Team-owned schedule: read-only. Block all drag/connect/report actions.
+    if (schedule.owner) return;
     if (e.target.classList.contains('resize-handle')) return;
 
     // Sticky date-focus mode: a bar click opens the daily-report modal for
@@ -2918,12 +3038,25 @@ function renderAllReportsView() {
   const root = els.allReportsContent;
   root.innerHTML = '';
 
+  // Sync the 담당자 dropdown — visible only when team mode is ON.
+  syncAllReportsOwnerOptions();
+
   const q = state.allReportsQuery.trim().toLowerCase();
   const from = state.allReportsDateFrom;
   const to = state.allReportsDateTo;
-  const filtered = state.allReports.filter(
-    (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to)
-  );
+  const ownerSel = state.allReportsOwner;
+  const ownReports = (ownerSel && ownerSel !== '__self' && ownerSel !== '')
+    ? []
+    : state.allReports.filter(
+        (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to)
+      );
+  const teamReports = teamOn()
+    ? state.team.merged.reports.filter(
+        (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to) &&
+               (!ownerSel || ownerSel === r.owner)
+      )
+    : [];
+  const filtered = ownReports.concat(teamReports);
 
   const filterActive = Boolean(q || from || to);
   els.allReportsSummary.textContent = filterActive
@@ -2954,13 +3087,25 @@ function renderAllReportsView() {
       continue;
     }
     for (const cat of r.categories) {
-      if (!byCat.has(cat.id)) byCat.set(cat.id, { cat, reports: [] });
-      byCat.get(cat.id).reports.push(r);
+      // (owner, id) composite key so own and team categories with the same
+      // numeric id don't collide into the same section.
+      const key = `${cat.owner || ''}:${cat.id}`;
+      if (!byCat.has(key)) byCat.set(key, { cat, reports: [] });
+      byCat.get(key).reports.push(r);
     }
   }
 
-  // Render each category section in stable id order.
-  const sections = [...byCat.values()].sort((a, b) => a.cat.id - b.cat.id);
+  // Render sections: own categories first (sorted by id), then team categories
+  // grouped by owner (alphabetical), each group sorted by id.
+  const sections = [...byCat.values()].sort((a, b) => {
+    const ao = a.cat.owner ? 1 : 0;
+    const bo = b.cat.owner ? 1 : 0;
+    if (ao !== bo) return ao - bo;
+    if (ao && a.cat.owner !== b.cat.owner) {
+      return a.cat.owner < b.cat.owner ? -1 : 1;
+    }
+    return a.cat.id - b.cat.id;
+  });
   if (noCat.length > 0) {
     sections.push({ cat: { id: -1, name: '태그 없음', color: '#9aa1ad' }, reports: noCat });
   }
@@ -2973,6 +3118,10 @@ function renderAllReportsView() {
   function buildReportLi(r, sectionCatId, hidePillForScheduleId) {
     const li = document.createElement('li');
     li.dataset.reportId = String(r.id);
+    if (r.owner) {
+      li.classList.add('team-readonly');
+      li.dataset.owner = r.owner;
+    }
 
     const preview = (r.body || '').replace(/[ \t]+/g, ' ').trim();
     const previewHtml = preview
@@ -2998,7 +3147,7 @@ function renderAllReportsView() {
     const schedPills = (r.schedules || [])
       .filter((s) => s.id !== hidePillForScheduleId)
       .map((s) => {
-        const sCat = state.categories.find((c) => c.id === s.category_id);
+        const sCat = findCategoryForSchedule(s);
         const bg = (sCat && sCat.color) || '#1f5fc9';
         return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join('');
@@ -3009,6 +3158,7 @@ function renderAllReportsView() {
       <div class="report-item-meta">
         ${attChips || '<span class="muted">첨부 없음</span>'}
         ${otherTags ? `<span class="other-tags">${otherTags}</span>` : ''}
+        ${teamOwnerSuffix(r.owner)}
       </div>
     `;
     return li;
@@ -3049,9 +3199,10 @@ function renderAllReportsView() {
     head.className = 'reports-cat-head';
     const catBg = cat.color || '#9aa1ad';
     head.innerHTML = `
-      <span class="cat-tag" style="background:${escapeHtml(catBg)}; color:${inkOn(catBg)};">${escapeHtml(cat.name)}</span>
+      <span class="cat-tag" style="background:${escapeHtml(catBg)}; color:${inkOn(catBg)};">${escapeHtml(cat.name)}</span>${teamOwnerSuffix(cat.owner)}
       <span class="muted">${catReports.length}건</span>
     `;
+    if (cat.owner) section.classList.add('team-readonly');
     section.appendChild(head);
 
     if (state.allReportsBySchedule) {
@@ -3164,9 +3315,84 @@ els.allReportsContent.addEventListener('click', (e) => {
   const li = e.target.closest('li[data-report-id]');
   if (!li) return;
   const id = Number(li.dataset.reportId);
+  // Team-owned report: open the read-only viewer (lookup by owner+id).
+  if (li.classList.contains('team-readonly')) {
+    const owner = li.dataset.owner || '';
+    const r = state.team.merged.reports.find(
+      (x) => x.id === id && x.owner === owner
+    );
+    if (r) openTeamReportViewer(r);
+    return;
+  }
   const r = state.allReports.find((x) => x.id === id);
   if (r) openReportModal(r);
 });
+
+function openTeamReportViewer(r) {
+  const m = document.getElementById('team-report-viewer-modal');
+  if (!m) return;
+  document.getElementById('team-report-viewer-owner').textContent = r.owner || '';
+  document.getElementById('team-report-viewer-date').textContent = r.report_date || '';
+
+  const catsEl = document.getElementById('team-report-viewer-cats');
+  const scheds = r.schedules || [];
+  const cats = r.categories || [];
+  catsEl.innerHTML = cats.length
+    ? `<span class="muted">카테고리</span> ${cats.map((c) => {
+        const bg = c.color || '#9aa1ad';
+        return `<span class="cat-tag mini" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(c.name)}</span>`;
+      }).join(' ')}`
+    : '';
+
+  const schedsEl = document.getElementById('team-report-viewer-scheds');
+  schedsEl.innerHTML = scheds.length
+    ? `<span class="muted">스케줄</span> ${scheds.map((s) => {
+        const sCat = findCategoryForSchedule(s);
+        const bg = (sCat && sCat.color) || '#1f5fc9';
+        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
+      }).join(' ')}`
+    : '';
+
+  const body = (r.body || '').trim();
+  document.getElementById('team-report-viewer-body').innerHTML = body
+    ? linkifyHtml(body)
+    : '<span class="muted">(빈 본문)</span>';
+
+  const attEl = document.getElementById('team-report-viewer-attachments');
+  attEl.innerHTML = '';
+  for (const a of (r.attachments || [])) {
+    if (a.kind === 'upload' && a.peerHost && a.peerPort) {
+      // Direct download from the peer's static /uploads/ path. Opens in a
+      // new tab; the browser handles either inline rendering or download.
+      const href = `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}/uploads/${encodeURIComponent(a.path)}`;
+      const link = document.createElement('a');
+      link.className = 'att-chip';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.title = a.display_name;
+      link.textContent = `📎 ${a.display_name}`;
+      attEl.appendChild(link);
+    } else {
+      // local_path attachments live on the peer's filesystem and aren't
+      // reachable from here. Show as text-only with a hint.
+      const span = document.createElement('span');
+      span.className = 'att-chip-readonly';
+      span.title = `원격 사용자 로컬 경로: ${a.path}`;
+      span.textContent = `📁 ${a.display_name} (원격 로컬)`;
+      attEl.appendChild(span);
+    }
+  }
+  if (!r.attachments || r.attachments.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.style.fontSize = '12px';
+    empty.textContent = '첨부 없음';
+    attEl.appendChild(empty);
+  }
+
+  m.classList.remove('hidden');
+}
 
 // ---------- Resizable table columns ----------
 // Each .schedules.resizable table starts with widths declared via inline
@@ -3243,3 +3469,572 @@ refreshAll().then(() => {
 
 // Make all resizable tables actually resizable (idempotent — runs once).
 document.querySelectorAll('table.schedules.resizable').forEach(makeTableResizable);
+
+// ---------- Team coworking UI ----------
+
+state.team = {
+  mode: 'OFF',
+  self: { name: '', port: 0 },
+  peers: [],
+  lastSyncAt: null,
+  pollTimer: null,
+  merged: { categories: [], schedules: [], dependencies: [], reports: [] },
+  mergedLoadedFor: null, // lastSyncAt that current merged data corresponds to
+};
+
+state.allReportsOwner = ''; // '' = all, '__self' = own only, '<peerName>' = that peer
+
+// Helper: is the team mode ON and rendering integrated views?
+function teamOn() { return state.team.mode === 'ON'; }
+
+// Helper: produce the owner suffix span for a team-owned item. Returns
+// empty string for own items so renderers can blindly append the result.
+function teamOwnerSuffix(owner) {
+  if (!owner) return '';
+  return `<span class="team-owner-suffix">${escapeHtml(owner)}</span>`;
+}
+
+async function loadTeamMerged() {
+  try {
+    const res = await fetch('/api/team/merged');
+    if (!res.ok) return;
+    const d = await res.json();
+    state.team.merged = {
+      categories: d.categories || [],
+      schedules: d.schedules || [],
+      dependencies: d.dependencies || [],
+      reports: d.reports || [],
+    };
+    state.team.mergedLoadedFor = d.lastSyncAt || null;
+    // Re-render anything currently visible so team data appears.
+    if (typeof renderCategories === 'function') renderCategories();
+    if (typeof renderCategoryView === 'function') renderCategoryView();
+    if (typeof renderAllReportsView === 'function' && state.scope === 'all-reports') renderAllReportsView();
+  } catch { /* network blip */ }
+}
+
+const teamEls = {
+  toggleBtn:     document.getElementById('team-toggle-btn'),
+  statusBtn:     document.getElementById('team-status-btn'),
+  refreshTopbarBtn: document.getElementById('team-refresh-topbar-btn'),
+  statusModal:   document.getElementById('team-status-modal'),
+  statusSummary: document.getElementById('team-status-summary'),
+  peerList:      document.getElementById('team-peer-status-list'),
+  refreshNowBtn: document.getElementById('team-refresh-now-btn'),
+  toastContainer: document.getElementById('toast-container'),
+};
+
+const TEAM_STATUS_LABELS = {
+  ok: '연결됨', loading: '연결 중', fail: '연결 실패', timeout: '타임아웃',
+};
+
+function teamFormatTime(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleTimeString('ko-KR', { hour12: false }); }
+  catch { return iso; }
+}
+
+function showToast(message, type = 'info', durationMs = 3000) {
+  if (!teamEls.toastContainer) return;
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  teamEls.toastContainer.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.3s';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 320);
+  }, durationMs);
+}
+
+let teamPrevSyncAt = null;
+async function loadTeamState() {
+  try {
+    const res = await fetch('/api/team/state');
+    if (!res.ok) return;
+    applyTeamState(await res.json());
+  } catch { /* network blip */ }
+}
+
+function applyTeamState(data) {
+  state.team.mode = data.mode;
+  if (data.self) state.team.self = data.self;
+  state.team.peers = data.peers || [];
+  state.team.lastSyncAt = data.lastSyncAt;
+
+  teamEls.toggleBtn.textContent = `팀 전체계획 ${data.mode}`;
+  teamEls.toggleBtn.classList.toggle('is-on', data.mode === 'ON');
+
+  if (data.mode === 'ON') {
+    teamEls.statusBtn.classList.remove('hidden');
+    if (teamEls.refreshTopbarBtn) teamEls.refreshTopbarBtn.classList.remove('hidden');
+    const total = state.team.peers.length;
+    const okCount = state.team.peers.filter((p) => p.status === 'ok').length;
+    const failed  = state.team.peers.filter((p) => p.status === 'fail' || p.status === 'timeout');
+    teamEls.statusBtn.classList.toggle('has-failures', failed.length > 0);
+    teamEls.statusBtn.textContent = total > 0 ? `상태 ${okCount}/${total}` : '상태';
+
+    const allDone = total > 0 && state.team.peers.every((p) => p.status !== 'loading');
+    if (allDone && data.lastSyncAt && data.lastSyncAt !== teamPrevSyncAt) {
+      const failedNames = failed.map((p) => p.name).join(', ');
+      if (failed.length === 0) {
+        showToast(`팀원 ${total}명 동기화 완료`);
+      } else if (okCount > 0) {
+        showToast(`${okCount}명 동기화 완료 · 실패: ${failedNames}`);
+      } else {
+        showToast(`전원 연결 실패: ${failedNames}`, 'error');
+      }
+      teamPrevSyncAt = data.lastSyncAt;
+    }
+  } else {
+    teamEls.statusBtn.classList.add('hidden');
+    if (teamEls.refreshTopbarBtn) teamEls.refreshTopbarBtn.classList.add('hidden');
+    teamPrevSyncAt = null;
+  }
+
+  renderTeamStatusModal();
+
+  if (data.mode === 'ON' && !state.team.pollTimer) {
+    state.team.pollTimer = setInterval(loadTeamState, 5000);
+  } else if (data.mode === 'OFF' && state.team.pollTimer) {
+    clearInterval(state.team.pollTimer);
+    state.team.pollTimer = null;
+  }
+
+  // Refresh merged data whenever the server's lastSyncAt advances. Also fetch
+  // once on the first ON state observation. When OFF, clear merged so views
+  // stop showing team items immediately.
+  if (data.mode === 'ON') {
+    if (data.lastSyncAt && data.lastSyncAt !== state.team.mergedLoadedFor) {
+      loadTeamMerged();
+    }
+  } else if (state.team.mergedLoadedFor !== null) {
+    state.team.merged = { categories: [], schedules: [], dependencies: [], reports: [] };
+    state.team.mergedLoadedFor = null;
+    if (typeof renderCategories === 'function') renderCategories();
+    if (typeof renderCategoryView === 'function') renderCategoryView();
+    if (typeof renderAllReportsView === 'function' && state.scope === 'all-reports') renderAllReportsView();
+  }
+}
+
+function renderTeamStatusModal() {
+  if (!teamEls.peerList) return;
+  const { peers, lastSyncAt } = state.team;
+  teamEls.statusSummary.textContent = lastSyncAt
+    ? `마지막 갱신: ${teamFormatTime(lastSyncAt)}`
+    : '아직 갱신 전';
+  teamEls.peerList.innerHTML = '';
+  if (peers.length === 0) {
+    const li = document.createElement('li');
+    li.style.gridTemplateColumns = '1fr';
+    li.className = 'muted';
+    li.textContent = '등록된 팀원이 없습니다 (data/team_peers.csv 확인)';
+    teamEls.peerList.appendChild(li);
+    return;
+  }
+  for (const p of peers) {
+    const li = document.createElement('li');
+    const left = document.createElement('div');
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'team-peer-name';
+    nameDiv.textContent = p.name;
+    const hostDiv = document.createElement('div');
+    hostDiv.className = 'team-peer-host';
+    hostDiv.textContent = `${p.host || ''}:${p.port || ''}`;
+    left.appendChild(nameDiv);
+    left.appendChild(hostDiv);
+
+    const stateLabel = document.createElement('span');
+    stateLabel.className = `team-peer-state ${p.status}`;
+    stateLabel.textContent = TEAM_STATUS_LABELS[p.status] || p.status;
+
+    const time = document.createElement('span');
+    time.className = 'team-peer-time';
+    time.textContent = p.lastSuccessAt
+      ? teamFormatTime(p.lastSuccessAt)
+      : (p.lastError || '-');
+
+    li.appendChild(left);
+    li.appendChild(stateLabel);
+    li.appendChild(time);
+    teamEls.peerList.appendChild(li);
+  }
+}
+
+async function toggleTeamMode() {
+  try {
+    const res = await fetch('/api/team/toggle', { method: 'POST' });
+    if (!res.ok) { showToast('팀 모드 전환 실패', 'error'); return; }
+    const data = await res.json();
+    if (data.mode === 'ON') openTeamStatusModal();
+    await loadTeamState();
+  } catch (e) {
+    showToast('팀 모드 전환 오류: ' + e.message, 'error');
+  }
+}
+
+async function teamRefreshNow() {
+  try {
+    const res = await fetch('/api/team/sync', { method: 'POST' });
+    if (!res.ok) { showToast('동기화 실패', 'error'); return; }
+    await loadTeamState();
+  } catch (e) {
+    showToast('동기화 오류: ' + e.message, 'error');
+  }
+}
+
+function openTeamStatusModal() {
+  teamEls.statusModal.classList.remove('hidden');
+  renderTeamStatusModal();
+}
+function closeTeamStatusModal() {
+  teamEls.statusModal.classList.add('hidden');
+}
+
+// Sync the all-reports 담당자 dropdown options against the current peer list
+// + own self.name. Hide the entire control when team mode is OFF (no peers
+// to choose between). Preserve the current selection if the option still
+// exists; otherwise fall back to "전체".
+function syncAllReportsOwnerOptions() {
+  const wrap = els.allReportsOwnerWrap;
+  const sel = els.allReportsOwner;
+  if (!wrap || !sel) return;
+  if (!teamOn()) {
+    wrap.classList.add('hidden');
+    if (state.allReportsOwner) state.allReportsOwner = '';
+    return;
+  }
+  wrap.classList.remove('hidden');
+
+  const currentValue = state.allReportsOwner;
+  const selfName = (state.team.self && state.team.self.name) || '';
+  const peerNames = state.team.peers.map((p) => p.name);
+
+  sel.innerHTML = '';
+  const opts = [
+    { value: '', label: '전체' },
+    { value: '__self', label: selfName ? `${selfName} (본인)` : '본인' },
+    ...peerNames.map((n) => ({ value: n, label: n })),
+  ];
+  for (const o of opts) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    sel.appendChild(opt);
+  }
+  sel.value = opts.some((o) => o.value === currentValue) ? currentValue : '';
+  state.allReportsOwner = sel.value;
+}
+
+if (els.allReportsOwner) {
+  els.allReportsOwner.addEventListener('change', () => {
+    state.allReportsOwner = els.allReportsOwner.value;
+    if (typeof renderAllReportsView === 'function') renderAllReportsView();
+  });
+}
+
+// Team server-side events: peer CSV reloads, peer-update broadcasts received,
+// CSV validation errors. Polled every 8s regardless of toggle state. The first
+// poll only catches up `seq` so already-buffered events from before this page
+// loaded don't all dump as toasts.
+let teamEventSeq = 0;
+let teamEventInitial = true;
+async function pollTeamEvents() {
+  try {
+    const res = await fetch(`/api/team/events?since=${teamEventSeq}`);
+    if (!res.ok) return;
+    const { events: list, latestSeq } = await res.json();
+    if (typeof latestSeq === 'number') teamEventSeq = Math.max(teamEventSeq, latestSeq);
+    if (teamEventInitial) {
+      teamEventInitial = false;
+      return;
+    }
+    for (const ev of list) handleTeamEvent(ev);
+  } catch { /* network blip */ }
+}
+
+function handleTeamEvent(ev) {
+  if (ev.kind === 'csv_reload') {
+    showToast('peer 목록 갱신됨', 'info', 2500);
+    refreshTeamManageListIfOpen();
+  } else if (ev.kind === 'peer_update_received') {
+    const origin = ev.detail.origin || '?';
+    const names = (ev.detail.entries || []).map((e) => e.name).join(', ');
+    showToast(`${origin}이(가) '${names}'의 정보를 갱신했습니다`, 'info', 4000);
+    refreshTeamManageListIfOpen();
+  } else if (ev.kind === 'peer_remove_received') {
+    const origin = ev.detail.origin || '?';
+    const names = (ev.detail.names || []).join(', ');
+    showToast(`${origin}이(가) '${names}'을(를) 삭제했습니다`, 'info', 4000);
+    refreshTeamManageListIfOpen();
+  } else if (ev.kind === 'csv_validation_error') {
+    const errs = (ev.detail.errors || [])
+      .map((e) => `${e.line}행: ${e.message}`)
+      .slice(0, 3)
+      .join(' · ');
+    showToast(`CSV 검증 실패 — ${errs}`, 'error', 6000);
+  }
+}
+
+function refreshTeamManageListIfOpen() {
+  if (teamManageEls && teamManageEls.modal &&
+      !teamManageEls.modal.classList.contains('hidden') &&
+      typeof refreshTeamManageList === 'function') {
+    refreshTeamManageList();
+  }
+}
+
+setInterval(pollTeamEvents, 8000);
+pollTeamEvents();
+
+teamEls.toggleBtn.addEventListener('click', toggleTeamMode);
+teamEls.statusBtn.addEventListener('click', openTeamStatusModal);
+teamEls.refreshNowBtn.addEventListener('click', teamRefreshNow);
+if (teamEls.refreshTopbarBtn) {
+  teamEls.refreshTopbarBtn.addEventListener('click', teamRefreshNow);
+}
+teamEls.statusModal.addEventListener('click', (e) => {
+  if (e.target === teamEls.statusModal || e.target.matches('[data-close]')) {
+    closeTeamStatusModal();
+  }
+});
+
+const teamReportViewerModal = document.getElementById('team-report-viewer-modal');
+if (teamReportViewerModal) {
+  teamReportViewerModal.addEventListener('click', (e) => {
+    if (e.target === teamReportViewerModal || e.target.matches('[data-close]')) {
+      teamReportViewerModal.classList.add('hidden');
+    }
+  });
+}
+
+// ───── Team peer management modal (CRUD + CSV bulk import) ─────
+const teamManageEls = {
+  modal:       document.getElementById('team-manage-modal'),
+  openBtn:     document.getElementById('team-manage-btn'),
+  rows:        document.getElementById('team-manage-rows'),
+  count:       document.getElementById('team-manage-count'),
+  addForm:     document.getElementById('team-manage-add-form'),
+  csvText:     document.getElementById('team-manage-csv'),
+  csvFile:     document.getElementById('team-manage-csv-file'),
+  csvApply:    document.getElementById('team-manage-csv-apply'),
+  announceBtn: document.getElementById('team-manage-announce-btn'),
+};
+
+async function openTeamManageModal() {
+  await refreshTeamManageList();
+  teamManageEls.modal.classList.remove('hidden');
+}
+function closeTeamManageModal() {
+  teamManageEls.modal.classList.add('hidden');
+}
+
+async function refreshTeamManageList() {
+  let peers = [];
+  try {
+    const res = await fetch('/api/team/peers');
+    if (res.ok) peers = (await res.json()).peers || [];
+  } catch { /* network blip */ }
+  teamManageEls.count.textContent = `(${peers.length}명)`;
+  teamManageEls.rows.innerHTML = '';
+  if (peers.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" class="muted" style="text-align:center; padding:14px;">등록된 팀원 없음</td>';
+    teamManageEls.rows.appendChild(tr);
+    return;
+  }
+  for (const p of peers) {
+    const tr = document.createElement('tr');
+    tr.dataset.name = p.name;
+    tr.innerHTML = `
+      <td><span class="display-name">${escapeHtml(p.name)}</span></td>
+      <td><span class="display-host">${escapeHtml(p.host)}</span></td>
+      <td><span class="display-port">${p.port}</span></td>
+      <td class="actions">
+        <button class="btn" data-action="edit">편집</button>
+        <button class="btn btn-danger" data-action="remove">삭제</button>
+      </td>
+    `;
+    teamManageEls.rows.appendChild(tr);
+  }
+}
+
+if (teamManageEls.addForm) {
+  teamManageEls.addForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(teamManageEls.addForm);
+    const name = String(fd.get('name') || '').trim();
+    const host = String(fd.get('host') || '').trim();
+    const port = Number(fd.get('port'));
+    try {
+      const res = await fetch('/api/team/peer-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, host, port }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`추가 실패: ${err.detail || err.error || res.status}`, 'error');
+        return;
+      }
+      showToast(`'${name}' 추가됨`);
+      teamManageEls.addForm.reset();
+      await refreshTeamManageList();
+    } catch (e) {
+      showToast(`추가 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
+if (teamManageEls.rows) {
+  teamManageEls.rows.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    if (!tr || !tr.dataset.name) return;
+    const action = btn.dataset.action;
+
+    if (action === 'remove') {
+      const name = tr.dataset.name;
+      if (!confirm(`'${name}'을(를) 정말 삭제하시겠습니까?\n\n이 작업은 모든 팀원의 목록에서도 제거됩니다 (자동 전파).`)) return;
+      try {
+        const res = await fetch('/api/team/peer-remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`삭제 실패: ${err.error || res.status}`, 'error');
+          return;
+        }
+        showToast(`'${name}' 삭제됨`);
+        await refreshTeamManageList();
+      } catch (e) {
+        showToast(`삭제 오류: ${e.message}`, 'error');
+      }
+    } else if (action === 'edit') {
+      const original = tr.dataset.name;
+      const curName = tr.querySelector('.display-name').textContent;
+      const curHost = tr.querySelector('.display-host').textContent;
+      const curPort = tr.querySelector('.display-port').textContent;
+      tr.dataset.original = original;
+      tr.innerHTML = `
+        <td><input class="edit-name" value="${escapeHtml(curName)}" /></td>
+        <td><input class="edit-host" value="${escapeHtml(curHost)}" /></td>
+        <td><input class="edit-port" type="number" min="1" max="65535" value="${escapeHtml(curPort)}" /></td>
+        <td class="actions">
+          <button class="btn btn-primary" data-action="save">저장</button>
+          <button class="btn" data-action="cancel">취소</button>
+        </td>
+      `;
+    } else if (action === 'save') {
+      const original = tr.dataset.original;
+      const name = tr.querySelector('.edit-name').value.trim();
+      const host = tr.querySelector('.edit-host').value.trim();
+      const port = Number(tr.querySelector('.edit-port').value);
+      try {
+        const res = await fetch('/api/team/peer-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ originalName: original, name, host, port }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`수정 실패: ${err.detail || err.error || res.status}`, 'error');
+          return;
+        }
+        showToast(`'${name}' 수정됨`);
+        await refreshTeamManageList();
+      } catch (e) {
+        showToast(`수정 오류: ${e.message}`, 'error');
+      }
+    } else if (action === 'cancel') {
+      await refreshTeamManageList();
+    }
+  });
+}
+
+if (teamManageEls.csvFile) {
+  teamManageEls.csvFile.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      teamManageEls.csvText.value = text;
+    } catch (err) {
+      showToast(`파일 읽기 실패: ${err.message}`, 'error');
+    } finally {
+      e.target.value = ''; // allow re-select of same file
+    }
+  });
+}
+
+if (teamManageEls.csvApply) {
+  teamManageEls.csvApply.addEventListener('click', async () => {
+    const csv = teamManageEls.csvText.value.trim();
+    if (!csv) { showToast('CSV 내용이 비어있습니다', 'error'); return; }
+    const modeEl = document.querySelector('input[name="bulk-mode"]:checked');
+    const mode = modeEl ? modeEl.value : 'merge';
+    if (mode === 'replace' &&
+        !confirm('전체 팀원 목록을 이 CSV로 교체합니다. 기존 항목은 모두 삭제됩니다. 계속할까요?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/team/peer-bulk-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv, mode }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (err.errors && err.errors.length > 0) {
+          const summary = err.errors
+            .map((e) => `${e.line}행: ${e.message}`)
+            .slice(0, 3)
+            .join(' / ');
+          showToast(`CSV 검증 실패 — ${summary}`, 'error', 6000);
+        } else {
+          showToast(`적용 실패: ${err.error || res.status}`, 'error');
+        }
+        return;
+      }
+      const data = await res.json();
+      showToast(`CSV 적용 완료 (${data.mode} · ${data.accepted}명)`);
+      teamManageEls.csvText.value = '';
+      await refreshTeamManageList();
+    } catch (e) {
+      showToast(`적용 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
+if (teamManageEls.modal) {
+  teamManageEls.modal.addEventListener('click', (e) => {
+    if (e.target === teamManageEls.modal || e.target.matches('[data-close]')) {
+      closeTeamManageModal();
+    }
+  });
+}
+
+if (teamManageEls.openBtn) {
+  teamManageEls.openBtn.addEventListener('click', openTeamManageModal);
+}
+
+if (teamManageEls.announceBtn) {
+  teamManageEls.announceBtn.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/team/peer-announce', { method: 'POST' });
+      if (!res.ok) {
+        showToast('전파 실패', 'error');
+        return;
+      }
+      const data = await res.json();
+      showToast(`내 목록 전파 완료 (${data.sent || 0}개 항목)`);
+    } catch (e) {
+      showToast(`전파 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
+loadTeamState();
