@@ -1143,6 +1143,14 @@ body.readonly .modal select {
 /* Read-only marker for items that belong to a team peer. */
 .team-readonly { cursor: default !important; }
 .team-readonly .gantt-bar { cursor: default !important; }
+/* Disable resize interaction on team bars while keeping the right-edge
+   status color visible — that stripe doubles as both resize handle AND
+   status indicator (done/in_progress/blocked/...). JS handler also guards
+   as defense-in-depth. */
+.gantt-bar.team-readonly .resize-handle {
+  cursor: default;
+  pointer-events: none;
+}
 
 /* Owner suffix in schedule bar / list rows / report rows. Same color and
    font as the surrounding text — only a divider character makes it visible. */

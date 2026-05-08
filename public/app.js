@@ -1530,6 +1530,13 @@ function attachBarDragHandlers(bar, schedule) {
 
 function attachBarResizeHandlers(handle, bar, schedule) {
   handle.addEventListener('mousedown', (e) => {
+    // Team-owned schedule: read-only. Block resize entirely so the bar's
+    // length can't be altered via drag handle (CSS also hides the handle).
+    if (schedule.owner) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
