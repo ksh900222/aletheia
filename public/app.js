@@ -3148,7 +3148,16 @@ function renderAllReportsView() {
 
     const attChips = (r.attachments || []).map((a) => {
       if (a.kind === 'upload') {
-        return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+        // Team-owned uploads must point at the peer's server, not ours.
+        const base = (a.peerHost && a.peerPort)
+          ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}`
+          : '';
+        return `<a class="att-chip" href="${base}/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+      }
+      // local_path: only reachable when it's our own. Team peer's local
+      // filesystem isn't accessible from here — render as non-clickable hint.
+      if (a.owner) {
+        return `<span class="att-chip" style="cursor:default;opacity:0.6;" title="원격 사용자 로컬 경로 — 접근 불가: ${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)} (원격 로컬)</span>`;
       }
       const href = toFileHref(a.path);
       return `<a class="att-chip" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</a>`;
