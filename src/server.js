@@ -112,6 +112,14 @@ holidays.scheduleDaily();
 teamSettings.load();
 peerWatcher.start();
 peerBroadcaster.init();
+// Boot-time announcement: push my current peer list to every peer once. This
+// catches peers that were offline when I made local changes, and bootstraps
+// new instances that don't yet know what I know. Fire-and-forget — failures
+// just mean those peers will catch up next time someone changes something.
+setImmediate(() => {
+  peerBroadcaster.announceCurrentList()
+    .catch((e) => console.warn('[team] boot announce 오류:', e.message));
+});
 
 app.listen(PORT, HOST, () => {
   console.log(`project_planner listening on http://${HOST}:${PORT}`);

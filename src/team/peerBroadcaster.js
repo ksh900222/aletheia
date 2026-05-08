@@ -110,10 +110,21 @@ function init() {
   });
 }
 
+// Announce my current full peer list to all peers as upserts. Used at boot
+// (so peers that were offline when changes happened can catch up) and via the
+// "내 목록 전파" UI button. Idempotent — receivers upsert with no diff = no-op.
+async function announceCurrentList() {
+  const all = peerWatcher.getPeers();
+  if (all.length === 0) return { sent: 0 };
+  await broadcastEntries(all);
+  return { sent: all.length };
+}
+
 module.exports = {
   init,
   broadcastEntries,
   broadcastRemovals,
+  announceCurrentList,
   diffPeers,
   rememberBroadcast,
   rememberRemoval,

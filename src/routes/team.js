@@ -259,6 +259,15 @@ router.post('/peer-remove', (req, res) => {
   res.json({ ok: true, name });
 });
 
+router.post('/peer-announce', async (req, res) => {
+  try {
+    const result = await broadcaster.announceCurrentList();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: 'announce_failed', detail: e.message });
+  }
+});
+
 router.post('/peer-bulk-import', (req, res) => {
   // Accepts either { csv: "<text>" } or { entries: [...] }, plus
   // mode: 'merge' (default) | 'replace'.

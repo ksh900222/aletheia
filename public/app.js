@@ -3756,16 +3756,31 @@ async function pollTeamEvents() {
 function handleTeamEvent(ev) {
   if (ev.kind === 'csv_reload') {
     showToast('peer 목록 갱신됨', 'info', 2500);
+    refreshTeamManageListIfOpen();
   } else if (ev.kind === 'peer_update_received') {
     const origin = ev.detail.origin || '?';
     const names = (ev.detail.entries || []).map((e) => e.name).join(', ');
     showToast(`${origin}이(가) '${names}'의 정보를 갱신했습니다`, 'info', 4000);
+    refreshTeamManageListIfOpen();
+  } else if (ev.kind === 'peer_remove_received') {
+    const origin = ev.detail.origin || '?';
+    const names = (ev.detail.names || []).join(', ');
+    showToast(`${origin}이(가) '${names}'을(를) 삭제했습니다`, 'info', 4000);
+    refreshTeamManageListIfOpen();
   } else if (ev.kind === 'csv_validation_error') {
     const errs = (ev.detail.errors || [])
       .map((e) => `${e.line}행: ${e.message}`)
       .slice(0, 3)
       .join(' · ');
     showToast(`CSV 검증 실패 — ${errs}`, 'error', 6000);
+  }
+}
+
+function refreshTeamManageListIfOpen() {
+  if (teamManageEls && teamManageEls.modal &&
+      !teamManageEls.modal.classList.contains('hidden') &&
+      typeof refreshTeamManageList === 'function') {
+    refreshTeamManageList();
   }
 }
 
@@ -3795,14 +3810,15 @@ if (teamReportViewerModal) {
 
 // ───── Team peer management modal (CRUD + CSV bulk import) ─────
 const teamManageEls = {
-  modal:    document.getElementById('team-manage-modal'),
-  openBtn:  document.getElementById('team-manage-btn'),
-  rows:     document.getElementById('team-manage-rows'),
-  count:    document.getElementById('team-manage-count'),
-  addForm:  document.getElementById('team-manage-add-form'),
-  csvText:  document.getElementById('team-manage-csv'),
-  csvFile:  document.getElementById('team-manage-csv-file'),
-  csvApply: document.getElementById('team-manage-csv-apply'),
+  modal:       document.getElementById('team-manage-modal'),
+  openBtn:     document.getElementById('team-manage-btn'),
+  rows:        document.getElementById('team-manage-rows'),
+  count:       document.getElementById('team-manage-count'),
+  addForm:     document.getElementById('team-manage-add-form'),
+  csvText:     document.getElementById('team-manage-csv'),
+  csvFile:     document.getElementById('team-manage-csv-file'),
+  csvApply:    document.getElementById('team-manage-csv-apply'),
+  announceBtn: document.getElementById('team-manage-announce-btn'),
 };
 
 async function openTeamManageModal() {
@@ -4003,6 +4019,22 @@ if (teamManageEls.modal) {
 
 if (teamManageEls.openBtn) {
   teamManageEls.openBtn.addEventListener('click', openTeamManageModal);
+}
+
+if (teamManageEls.announceBtn) {
+  teamManageEls.announceBtn.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/team/peer-announce', { method: 'POST' });
+      if (!res.ok) {
+        showToast('전파 실패', 'error');
+        return;
+      }
+      const data = await res.json();
+      showToast(`내 목록 전파 완료 (${data.sent || 0}개 항목)`);
+    } catch (e) {
+      showToast(`전파 오류: ${e.message}`, 'error');
+    }
+  });
 }
 
 loadTeamState();
