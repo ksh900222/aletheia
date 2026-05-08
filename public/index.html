@@ -18,7 +18,12 @@
   <header class="topbar">
     <h1>Aletheia</h1>
     <span class="topbar-spacer"></span>
+    <button id="team-toggle-btn" class="team-toggle-btn" title="팀원들의 일정·리포트를 함께 보기 (ON/OFF)">팀 전체계획 OFF</button>
+    <button id="team-status-btn" class="team-status-btn hidden" title="팀 연결 상태 보기">상태</button>
+    <button id="team-refresh-topbar-btn" class="team-status-btn hidden" title="팀원 데이터 즉시 갱신">갱신</button>
   </header>
+
+  <div id="toast-container" class="toast-container"></div>
 
   <main class="layout">
     <aside class="sidebar">
@@ -43,6 +48,11 @@
             <p id="all-reports-summary" class="muted"></p>
           </div>
           <div class="all-reports-toolbar">
+            <label id="all-reports-owner-wrap" class="date-filter hidden">담당자
+              <select id="all-reports-owner">
+                <option value="">전체</option>
+              </select>
+            </label>
             <label class="date-filter">시작
               <input id="all-reports-date-from" type="date" />
             </label>
@@ -363,6 +373,19 @@
           <button type="submit" class="btn btn-primary">저장</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Team status modal -->
+  <div id="team-status-modal" class="modal hidden">
+    <div class="modal-card team-status-card">
+      <h3>팀 연결 상태</h3>
+      <p id="team-status-summary" class="muted"></p>
+      <ul id="team-peer-status-list" class="team-peer-status-list"></ul>
+      <div class="modal-actions">
+        <button type="button" id="team-refresh-now-btn" class="btn">지금 갱신</button>
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
     </div>
   </div>
 

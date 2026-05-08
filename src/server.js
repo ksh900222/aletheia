@@ -10,6 +10,10 @@ const reportsRouter = require('./routes/reports');
 const attachmentsRouter = require('./routes/attachments');
 const scheduler = require('./engine/scheduler');
 const holidays = require('./holidays');
+const teamSettings = require('./team/settings');
+const peerWatcher = require('./team/peerWatcher');
+const peerBroadcaster = require('./team/peerBroadcaster');
+const teamRouter = require('./routes/team');
 
 const app = express();
 // PORT — defaults to 3000. Override with PORT=4000 node src/server.js.
@@ -54,6 +58,11 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ ip: clientIp(req), canWrite: canWrite(req) });
 });
 
+// Team router is mounted BEFORE the IP write-guard so cross-peer endpoints
+// (peer-update, etc.) can be reached from any team-member IP. The router
+// enforces shared-token auth on those endpoints internally.
+app.use('/api/team', teamRouter);
+
 app.use((req, res, next) => {
   const m = req.method;
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
@@ -96,6 +105,13 @@ app.use((err, req, res, next) => {
 // Korean holiday cache: load from disk, then schedule daily refresh.
 holidays.load();
 holidays.scheduleDaily();
+
+// Team peer config (CSV + settings) — load + watch for live edits.
+// peerBroadcaster.init() is called AFTER peerWatcher.start() so the
+// initial boot-time reload does not trigger an unnecessary broadcast.
+teamSettings.load();
+peerWatcher.start();
+peerBroadcaster.init();
 
 app.listen(PORT, HOST, () => {
   console.log(`project_planner listening on http://${HOST}:${PORT}`);
