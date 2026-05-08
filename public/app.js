@@ -1560,6 +1560,8 @@ function attachBarResizeHandlers(handle, bar, schedule) {
 // "Related" = the dep's pred or succ endpoint resolves to this schedule
 // (directly via schedule id, or indirectly via the schedule's category).
 function isDepRelatedTo(dep, schedule) {
+  // Cross-owner deps don't relate — own and team belong to disjoint id spaces.
+  if ((dep.owner || '') !== (schedule.owner || '')) return false;
   const matches = (type, id) => {
     if (type === 'schedule') return id === schedule.id;
     if (type === 'category') return id === schedule.category_id;
@@ -1568,15 +1570,21 @@ function isDepRelatedTo(dep, schedule) {
   return matches(dep.pred_type, dep.pred_id) || matches(dep.succ_type, dep.succ_id);
 }
 
-// Resolve a dep endpoint (schedule|category) to the set of schedule IDs that
-// it stands for. Used during bar hover to mark every bar that participates
-// in a dep with the hovered schedule.
-function resolveEndpointScheduleIds(type, id) {
-  if (type === 'schedule') return [id];
+// Resolve a dep endpoint (schedule|category) to the set of composite schedule
+// keys (owner+id) that it stands for. Used during bar hover to mark every bar
+// that participates in a dep with the hovered schedule.
+function resolveEndpointScheduleKeys(type, id, owner) {
+  const o = owner || '';
+  if (type === 'schedule') return [depEndpointKey(o, id)];
   if (type === 'category') {
+    if (o) {
+      return state.team.merged.schedules
+        .filter((s) => s.category_id === id && s.owner === o)
+        .map(scheduleKey);
+    }
     return state.allSchedules
       .filter((s) => s.category_id === id)
-      .map((s) => s.id);
+      .map(scheduleKey);
   }
   return [];
 }
@@ -1589,32 +1597,42 @@ function attachBarHoverHighlight(bar, schedule) {
     const grid = bar.closest('.gantt-grid');
     const svg = grid && grid.querySelector('.gantt-arrows');
 
+    // Combined dep pool — own deps + team-merged deps (each tagged with owner).
+    const allDeps = teamOn()
+      ? state.dependencies.concat(state.team.merged.dependencies)
+      : state.dependencies;
+
     // Bars: dim all bars in the grid except hovered + those tied by a dep.
     if (grid) {
       grid.classList.add('hover-active');
-      const focusIds = new Set([schedule.id]);
-      for (const dep of state.dependencies) {
+      const focusKeys = new Set([scheduleKey(schedule)]);
+      for (const dep of allDeps) {
         if (!isDepRelatedTo(dep, schedule)) continue;
-        for (const sid of resolveEndpointScheduleIds(dep.pred_type, dep.pred_id)) {
-          focusIds.add(sid);
+        const o = dep.owner || '';
+        for (const k of resolveEndpointScheduleKeys(dep.pred_type, dep.pred_id, o)) {
+          focusKeys.add(k);
         }
-        for (const sid of resolveEndpointScheduleIds(dep.succ_type, dep.succ_id)) {
-          focusIds.add(sid);
+        for (const k of resolveEndpointScheduleKeys(dep.succ_type, dep.succ_id, o)) {
+          focusKeys.add(k);
         }
       }
       grid.querySelectorAll('.gantt-bar[data-schedule-id]').forEach((b) => {
-        if (focusIds.has(Number(b.dataset.scheduleId))) {
+        const key = `${b.dataset.owner || ''}:${b.dataset.scheduleId}`;
+        if (focusKeys.has(key)) {
           b.classList.add('bar-focus');
         }
       });
     }
 
-    // Arrows: same focus rule as before.
+    // Arrows: same focus rule, looked up by composite (owner, dep id) key.
     if (svg) {
       svg.classList.add('hover-active');
+      const depByKey = new Map(
+        allDeps.map((d) => [`${d.owner || ''}:${d.id}`, d])
+      );
       svg.querySelectorAll('path[data-dep-id]').forEach((p) => {
-        const depId = Number(p.dataset.depId);
-        const dep = state.dependencies.find((d) => d.id === depId);
+        const arrowKey = `${p.dataset.owner || ''}:${Number(p.dataset.depId)}`;
+        const dep = depByKey.get(arrowKey);
         if (dep && isDepRelatedTo(dep, schedule)) {
           p.classList.add('arrow-focus');
         }
