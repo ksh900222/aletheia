@@ -1,135 +1,107 @@
-const fs = require('fs');
+// Peer service — public API kept stable for callers (sync, broadcaster,
+// routes), but the underlying storage moved from a fs.watch'd CSV to a
+// dedicated SQLite DB (peerStore). The CSV is now only an optional bulk
+// import source (legacy file on first boot, or UI-triggered import).
 const path = require('path');
+const fs = require('fs');
 const csv = require('./csvPeers');
+const peerStore = require('./peerStore');
 const events = require('./events');
 
-const CSV_PATH = process.env.TEAM_PEERS_CSV
+const LEGACY_CSV_PATH = process.env.TEAM_PEERS_CSV
   ? path.resolve(process.env.TEAM_PEERS_CSV)
   : path.resolve(__dirname, '..', '..', 'data', 'team_peers.csv');
 
-let currentPeers = [];
-let lastErrors = [];
 let lastReloadedAt = null;
-const changeListeners = [];
+let lastErrors = [];
 const errorListeners = [];
+// Set to true immediately before a peerStore write that is a result of an
+// inbound broadcast (peer-update / peer-remove). The next change emit will
+// carry meta.inbound = true so the broadcaster does not re-send.
+let inboundFlag = false;
 
-let debounceTimer = null;
-// When true, the next reload was caused by our own inbound peer-update write,
-// not a user edit. Listeners use this to skip rebroadcasting.
-let inboundWriteFlag = false;
-let watcher = null;
-// Skip emitting a "csv_reload" event on the very first (boot-time) reload.
-let firstReload = true;
-
-function getPeers() { return currentPeers.slice(); }
+function getPeers() { return peerStore.list(); }
 function getErrors() { return lastErrors.slice(); }
 function getStatus() {
-  return { peers: getPeers(), errors: getErrors(), lastReloadedAt, csvPath: CSV_PATH };
+  return {
+    peers: getPeers(),
+    errors: getErrors(),
+    lastReloadedAt,
+    dbPath: peerStore.DB_PATH,
+  };
 }
 
-function onChange(cb) { changeListeners.push(cb); }
+function onChange(cb) {
+  // Wrap to inject inboundFlag into each emission, then clear the flag.
+  peerStore.onChange((next, prev, meta) => {
+    const wasInbound = inboundFlag;
+    inboundFlag = false;
+    try { cb(next, prev, { ...(meta || {}), inbound: wasInbound }); }
+    catch (e) { console.error(e); }
+    lastReloadedAt = new Date().toISOString();
+  });
+}
+
 function onError(cb) { errorListeners.push(cb); }
 
-function markInboundWrite() { inboundWriteFlag = true; }
-
-function reload() {
-  let text;
-  try {
-    text = fs.readFileSync(CSV_PATH, 'utf-8');
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      const previous = currentPeers;
-      currentPeers = [];
-      lastErrors = [];
-      lastReloadedAt = new Date().toISOString();
-      console.warn(`[team] ${CSV_PATH} 없음 — 빈 peer 목록으로 시작`);
-      emitChange(previous, { inbound: false });
-      return;
-    }
-    console.error('[team] CSV 읽기 실패:', e.message);
-    return;
+function reportErrors(errs) {
+  lastErrors = errs;
+  events.record('csv_validation_error', { errors: errs });
+  for (const cb of errorListeners) {
+    try { cb(errs); } catch (e) { console.error(e); }
   }
-
-  const { entries, errors } = csv.parse(text);
-  if (errors.length > 0) {
-    lastErrors = errors;
-    console.warn('[team] CSV 검증 실패 — 이전 peer 목록 유지:', errors);
-    events.record('csv_validation_error', { errors });
-    for (const cb of errorListeners) {
-      try { cb(errors); } catch (e) { console.error(e); }
-    }
-    return;
-  }
-
-  const previous = currentPeers;
-  const wasInbound = inboundWriteFlag;
-  inboundWriteFlag = false;
-  currentPeers = entries;
-  lastErrors = [];
-  lastReloadedAt = new Date().toISOString();
-  if (!firstReload) {
-    events.record('csv_reload', {
-      peerCount: entries.length,
-      inbound: wasInbound,
-    });
-  }
-  firstReload = false;
-  emitChange(previous, { inbound: wasInbound });
 }
 
-function emitChange(previous, meta) {
-  for (const cb of changeListeners) {
-    try { cb(currentPeers, previous, meta); } catch (e) { console.error(e); }
+function markInboundWrite() { inboundFlag = true; }
+
+// Public mutators delegated to peerStore; UI / receiver paths use these.
+function upsertPeer(entry) { peerStore.upsert(entry); }
+function removePeer(name)  { return peerStore.remove(name); }
+function bulkUpsertPeers(entries) { peerStore.bulkUpsert(entries); }
+function replaceAllPeers(entries)  { peerStore.replaceAll(entries); }
+
+// Legacy compatibility: the /peer-update receiver used writePeers(merged) to
+// upsert via "replace whole list" semantics. With per-entry upsert in
+// peerStore that wrapper isn't needed — keep it as a bulk upsert though so
+// any older caller still works.
+function writePeers(entries) { peerStore.bulkUpsert(entries); }
+
+// One-time migration: if DB is empty AND the legacy CSV file exists with
+// valid entries, import them. Idempotent — once DB has any rows we skip.
+function maybeMigrateFromLegacyCsv() {
+  if (peerStore.count() > 0) return;
+  if (!fs.existsSync(LEGACY_CSV_PATH)) return;
+  let text;
+  try { text = fs.readFileSync(LEGACY_CSV_PATH, 'utf-8'); }
+  catch (e) {
+    console.warn('[team] legacy CSV 읽기 실패:', e.message);
+    return;
   }
+  const { entries, errors } = csv.parse(text);
+  if (errors.length > 0) {
+    console.warn('[team] legacy CSV 검증 실패 — 마이그레이션 스킵:', errors);
+    return;
+  }
+  if (entries.length === 0) return;
+  peerStore.bulkUpsert(entries, { migration: true });
+  console.log(`[team] legacy CSV에서 ${entries.length}명 자동 import 완료`);
 }
 
 function start() {
-  reload();
-  try {
-    watcher = fs.watch(CSV_PATH, () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(reload, 500);
-    });
-    watcher.on('error', (e) => {
-      console.warn('[team] fs.watch 에러:', e.message);
-    });
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      console.warn('[team] CSV가 아직 없어 fs.watch 등록 보류 — 5초 폴링으로 대기');
-      const poll = setInterval(() => {
-        if (fs.existsSync(CSV_PATH)) {
-          clearInterval(poll);
-          start();
-        }
-      }, 5000);
-    } else {
-      console.warn('[team] fs.watch 실패:', e.message);
-    }
-  }
+  maybeMigrateFromLegacyCsv();
+  lastReloadedAt = new Date().toISOString();
 }
 
-function stop() {
-  if (watcher) { watcher.close(); watcher = null; }
-  clearTimeout(debounceTimer);
-}
-
-function writePeers(entries) {
-  const text = csv.serialize(entries);
-  const tmp = CSV_PATH + '.tmp';
-  fs.writeFileSync(tmp, text, 'utf-8');
-  fs.renameSync(tmp, CSV_PATH);
-}
+function stop() { /* no-op — DB connection lives for process lifetime */ }
+function reload() { /* no-op — peerStore is the source of truth */ }
 
 module.exports = {
-  start,
-  stop,
-  reload,
-  getPeers,
-  getErrors,
-  getStatus,
-  onChange,
-  onError,
+  start, stop, reload,
+  getPeers, getErrors, getStatus,
+  onChange, onError,
+  reportErrors,
   markInboundWrite,
+  upsertPeer, removePeer, bulkUpsertPeers, replaceAllPeers,
   writePeers,
-  CSV_PATH,
+  LEGACY_CSV_PATH,
 };

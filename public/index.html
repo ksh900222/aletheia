@@ -19,6 +19,7 @@
     <h1>Aletheia</h1>
     <span class="topbar-spacer"></span>
     <button id="team-toggle-btn" class="team-toggle-btn" title="팀원들의 일정·리포트를 함께 보기 (ON/OFF)">팀 전체계획 OFF</button>
+    <button id="team-manage-btn" class="team-status-btn" title="팀원 목록 관리 (추가/편집/삭제 + CSV 일괄 입력)">팀원 관리</button>
     <button id="team-status-btn" class="team-status-btn hidden" title="팀 연결 상태 보기">상태</button>
     <button id="team-refresh-topbar-btn" class="team-status-btn hidden" title="팀원 데이터 즉시 갱신">갱신</button>
   </header>
@@ -384,6 +385,66 @@
       <ul id="team-peer-status-list" class="team-peer-status-list"></ul>
       <div class="modal-actions">
         <button type="button" id="team-refresh-now-btn" class="btn">지금 갱신</button>
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team peer management modal -->
+  <div id="team-manage-modal" class="modal hidden">
+    <div class="modal-card team-manage-card">
+      <h3>팀원 관리</h3>
+      <p class="muted" style="font-size:12px; margin:0 0 12px;">peer 정보는 별도 DB에 저장됩니다. 변경 사항은 모든 팀원에게 자동 전파됩니다.</p>
+
+      <h4>새 팀원 추가</h4>
+      <form id="team-manage-add-form" class="team-manage-add-row">
+        <input name="name" placeholder="이름" maxlength="100" required />
+        <input name="host" placeholder="호스트 (예: 192.168.1.11)" required />
+        <input name="port" type="number" min="1" max="65535" placeholder="포트" required />
+        <button type="submit" class="btn btn-primary">추가</button>
+      </form>
+
+      <h4>등록된 팀원 <span id="team-manage-count" class="muted"></span></h4>
+      <div class="team-manage-table-wrap">
+        <table class="team-manage-table">
+          <thead>
+            <tr><th>이름</th><th>호스트</th><th>포트</th><th></th></tr>
+          </thead>
+          <tbody id="team-manage-rows"></tbody>
+        </table>
+      </div>
+
+      <h4>CSV 일괄 입력</h4>
+      <p class="muted" style="font-size:11px; margin:0 0 6px;">헤더 「name,host,port」 필수 · 한 행에 한 명씩 · 빈 줄·#로 시작하는 줄은 무시</p>
+      <textarea id="team-manage-csv" rows="6" placeholder="name,host,port&#10;홍길동,192.168.1.11,3000"></textarea>
+      <div class="team-manage-csv-actions">
+        <label><input type="radio" name="bulk-mode" value="merge" checked /> 병합 (기존 유지 + 추가/갱신)</label>
+        <label><input type="radio" name="bulk-mode" value="replace" /> 덮어쓰기 (전체 교체)</label>
+        <label class="team-manage-file-label">
+          파일 선택 <input type="file" id="team-manage-csv-file" accept=".csv,text/csv" />
+        </label>
+        <button type="button" id="team-manage-csv-apply" class="btn btn-primary">CSV 적용</button>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team report read-only viewer -->
+  <div id="team-report-viewer-modal" class="modal hidden">
+    <div class="modal-card team-report-viewer-card">
+      <h3>팀원 리포트 <span class="muted" style="font-size:12px;">(읽기 전용)</span></h3>
+      <div class="team-report-viewer-meta">
+        <div><span class="muted">담당자</span> <span id="team-report-viewer-owner"></span></div>
+        <div><span class="muted">날짜</span> <span id="team-report-viewer-date"></span></div>
+        <div id="team-report-viewer-cats"></div>
+        <div id="team-report-viewer-scheds"></div>
+      </div>
+      <div id="team-report-viewer-body" class="team-report-viewer-body"></div>
+      <div id="team-report-viewer-attachments"></div>
+      <div class="modal-actions">
         <button type="button" class="btn" data-close>닫기</button>
       </div>
     </div>

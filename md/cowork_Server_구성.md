@@ -342,3 +342,22 @@ A의 CSV 편집 → peerWatcher 감지 → A의 이전 peer list와 diff 계산
 - primary key는 `name` (IP·port는 변동 가능)
 - broadcast는 추가/수정만, 삭제는 전파하지 않음 (실수 보호)
 - 충돌 시 last-write-wins + 사용자에게 토스트 알림
+
+### 2026-05-08 추가 (사용자 요청 — Phase H)
+1. **peer 저장소를 CSV 파일에서 별도 SQLite DB로 이전** — `data/team_peers.db`
+   - CSV 파일은 이제 *import 전용* (legacy 마이그레이션 + UI 일괄 입력)
+   - 직접 파일 편집은 더 이상 동작하지 않음 (fs.watch 제거)
+2. **페이지 내 「팀원 관리」 모달** — 헤더 토글 옆 버튼으로 항상 접근 가능
+   - 추가 폼 (이름/host/port + 검증)
+   - 등록된 팀원 표 — 행별 inline 편집(저장/취소) + 삭제(확인 다이얼로그)
+   - CSV 일괄 입력 — textarea 또는 파일 선택, 병합/덮어쓰기 모드 선택
+3. **삭제 자동 전파** — UI 삭제는 명시적 의사라 broadcast 안전
+   - POST `/api/team/peer-remove-received` 신규 (수신 측)
+   - 추가/수정에 사용한 dedupe set을 삭제용 `recentRemovals` 별도 운용
+4. **CSV 직접 편집 미지원** — 이전 동작이 그리우면 UI 「CSV 일괄 입력」으로 동일한 결과 가능
+
+### 결정사항 (Phase H)
+- 별도 DB (`data/team_peers.db`) — 메인 `planner.db` 와 격리 (스키마·마이그레이션 영향 X)
+- 첫 부팅 시 `data/team_peers.csv` 가 있고 DB가 비어있으면 1회 자동 import (조용히)
+- UI 삭제는 confirm 후 즉시 전파, broadcast 무한 루프는 `recentRemovals` 캐시로 차단
+- CSV 일괄 입력은 `merge` (기본) / `replace` (전체 교체, 경고 후) 두 가지 모드

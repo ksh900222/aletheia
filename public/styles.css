@@ -1150,3 +1150,152 @@ body.readonly .modal select {
   content: ' \00a0|\00a0 ';
   opacity: 0.55;
 }
+
+/* Team peer management modal. */
+.team-manage-card {
+  min-width: 600px;
+  max-width: 720px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.team-manage-card h4 {
+  font-size: 13px;
+  margin: 14px 0 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.team-manage-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 0.7fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.team-manage-add-row input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.team-manage-table-wrap {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.team-manage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.team-manage-table th {
+  text-align: left;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+.team-manage-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.team-manage-table td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.team-manage-table td.actions .btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.team-manage-table input {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  width: 100%;
+}
+#team-manage-csv {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+.team-manage-csv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.team-manage-csv-actions label { cursor: pointer; }
+.team-manage-file-label {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.team-manage-file-label input[type="file"] { display: none; }
+
+/* Team report read-only viewer. */
+.team-report-viewer-card {
+  min-width: 520px;
+  max-width: 720px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.team-report-viewer-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 18px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.team-report-viewer-meta > div { grid-column: 1 / -1; }
+.team-report-viewer-meta > div > .muted {
+  display: inline-block;
+  min-width: 60px;
+}
+.team-report-viewer-body {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 120px;
+  max-height: 50vh;
+}
+#team-report-viewer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+#team-report-viewer-attachments .att-chip-readonly {
+  background: var(--panel-3);
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  border: 1px dashed var(--border);
+}

@@ -106,9 +106,9 @@ app.use((err, req, res, next) => {
 holidays.load();
 holidays.scheduleDaily();
 
-// Team peer config (CSV + settings) — load + watch for live edits.
-// peerBroadcaster.init() is called AFTER peerWatcher.start() so the
-// initial boot-time reload does not trigger an unnecessary broadcast.
+// Team peer config — peerWatcher delegates to peerStore (SQLite). Migration
+// from legacy CSV runs inside start() if the DB is empty. peerBroadcaster
+// hooks onChange AFTER start() so the migration's bulk-upsert isn't sent out.
 teamSettings.load();
 peerWatcher.start();
 peerBroadcaster.init();

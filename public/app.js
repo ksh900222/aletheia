@@ -3314,13 +3314,85 @@ els.allReportsContent.addEventListener('click', (e) => {
   if (e.target.closest('a')) return;
   const li = e.target.closest('li[data-report-id]');
   if (!li) return;
-  // Team-owned report: read-only — don't open the edit modal. (Phase F: a
-  // dedicated read-only viewer can replace this no-op later.)
-  if (li.classList.contains('team-readonly')) return;
   const id = Number(li.dataset.reportId);
+  // Team-owned report: open the read-only viewer (lookup by owner+id).
+  if (li.classList.contains('team-readonly')) {
+    const owner = li.dataset.owner || '';
+    const r = state.team.merged.reports.find(
+      (x) => x.id === id && x.owner === owner
+    );
+    if (r) openTeamReportViewer(r);
+    return;
+  }
   const r = state.allReports.find((x) => x.id === id);
   if (r) openReportModal(r);
 });
+
+function openTeamReportViewer(r) {
+  const m = document.getElementById('team-report-viewer-modal');
+  if (!m) return;
+  document.getElementById('team-report-viewer-owner').textContent = r.owner || '';
+  document.getElementById('team-report-viewer-date').textContent = r.report_date || '';
+
+  const catsEl = document.getElementById('team-report-viewer-cats');
+  const scheds = r.schedules || [];
+  const cats = r.categories || [];
+  catsEl.innerHTML = cats.length
+    ? `<span class="muted">카테고리</span> ${cats.map((c) => {
+        const bg = c.color || '#9aa1ad';
+        return `<span class="cat-tag mini" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(c.name)}</span>`;
+      }).join(' ')}`
+    : '';
+
+  const schedsEl = document.getElementById('team-report-viewer-scheds');
+  schedsEl.innerHTML = scheds.length
+    ? `<span class="muted">스케줄</span> ${scheds.map((s) => {
+        const sCat = findCategoryForSchedule(s);
+        const bg = (sCat && sCat.color) || '#1f5fc9';
+        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
+      }).join(' ')}`
+    : '';
+
+  const body = (r.body || '').trim();
+  document.getElementById('team-report-viewer-body').innerHTML = body
+    ? linkifyHtml(body)
+    : '<span class="muted">(빈 본문)</span>';
+
+  const attEl = document.getElementById('team-report-viewer-attachments');
+  attEl.innerHTML = '';
+  for (const a of (r.attachments || [])) {
+    if (a.kind === 'upload' && a.peerHost && a.peerPort) {
+      // Direct download from the peer's static /uploads/ path. Opens in a
+      // new tab; the browser handles either inline rendering or download.
+      const href = `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}/uploads/${encodeURIComponent(a.path)}`;
+      const link = document.createElement('a');
+      link.className = 'att-chip';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.title = a.display_name;
+      link.textContent = `📎 ${a.display_name}`;
+      attEl.appendChild(link);
+    } else {
+      // local_path attachments live on the peer's filesystem and aren't
+      // reachable from here. Show as text-only with a hint.
+      const span = document.createElement('span');
+      span.className = 'att-chip-readonly';
+      span.title = `원격 사용자 로컬 경로: ${a.path}`;
+      span.textContent = `📁 ${a.display_name} (원격 로컬)`;
+      attEl.appendChild(span);
+    }
+  }
+  if (!r.attachments || r.attachments.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.style.fontSize = '12px';
+    empty.textContent = '첨부 없음';
+    attEl.appendChild(empty);
+  }
+
+  m.classList.remove('hidden');
+}
 
 // ---------- Resizable table columns ----------
 // Each .schedules.resizable table starts with widths declared via inline
@@ -3711,5 +3783,226 @@ teamEls.statusModal.addEventListener('click', (e) => {
     closeTeamStatusModal();
   }
 });
+
+const teamReportViewerModal = document.getElementById('team-report-viewer-modal');
+if (teamReportViewerModal) {
+  teamReportViewerModal.addEventListener('click', (e) => {
+    if (e.target === teamReportViewerModal || e.target.matches('[data-close]')) {
+      teamReportViewerModal.classList.add('hidden');
+    }
+  });
+}
+
+// ───── Team peer management modal (CRUD + CSV bulk import) ─────
+const teamManageEls = {
+  modal:    document.getElementById('team-manage-modal'),
+  openBtn:  document.getElementById('team-manage-btn'),
+  rows:     document.getElementById('team-manage-rows'),
+  count:    document.getElementById('team-manage-count'),
+  addForm:  document.getElementById('team-manage-add-form'),
+  csvText:  document.getElementById('team-manage-csv'),
+  csvFile:  document.getElementById('team-manage-csv-file'),
+  csvApply: document.getElementById('team-manage-csv-apply'),
+};
+
+async function openTeamManageModal() {
+  await refreshTeamManageList();
+  teamManageEls.modal.classList.remove('hidden');
+}
+function closeTeamManageModal() {
+  teamManageEls.modal.classList.add('hidden');
+}
+
+async function refreshTeamManageList() {
+  let peers = [];
+  try {
+    const res = await fetch('/api/team/peers');
+    if (res.ok) peers = (await res.json()).peers || [];
+  } catch { /* network blip */ }
+  teamManageEls.count.textContent = `(${peers.length}명)`;
+  teamManageEls.rows.innerHTML = '';
+  if (peers.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" class="muted" style="text-align:center; padding:14px;">등록된 팀원 없음</td>';
+    teamManageEls.rows.appendChild(tr);
+    return;
+  }
+  for (const p of peers) {
+    const tr = document.createElement('tr');
+    tr.dataset.name = p.name;
+    tr.innerHTML = `
+      <td><span class="display-name">${escapeHtml(p.name)}</span></td>
+      <td><span class="display-host">${escapeHtml(p.host)}</span></td>
+      <td><span class="display-port">${p.port}</span></td>
+      <td class="actions">
+        <button class="btn" data-action="edit">편집</button>
+        <button class="btn btn-danger" data-action="remove">삭제</button>
+      </td>
+    `;
+    teamManageEls.rows.appendChild(tr);
+  }
+}
+
+if (teamManageEls.addForm) {
+  teamManageEls.addForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(teamManageEls.addForm);
+    const name = String(fd.get('name') || '').trim();
+    const host = String(fd.get('host') || '').trim();
+    const port = Number(fd.get('port'));
+    try {
+      const res = await fetch('/api/team/peer-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, host, port }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`추가 실패: ${err.detail || err.error || res.status}`, 'error');
+        return;
+      }
+      showToast(`'${name}' 추가됨`);
+      teamManageEls.addForm.reset();
+      await refreshTeamManageList();
+    } catch (e) {
+      showToast(`추가 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
+if (teamManageEls.rows) {
+  teamManageEls.rows.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    if (!tr || !tr.dataset.name) return;
+    const action = btn.dataset.action;
+
+    if (action === 'remove') {
+      const name = tr.dataset.name;
+      if (!confirm(`'${name}'을(를) 정말 삭제하시겠습니까?\n\n이 작업은 모든 팀원의 목록에서도 제거됩니다 (자동 전파).`)) return;
+      try {
+        const res = await fetch('/api/team/peer-remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`삭제 실패: ${err.error || res.status}`, 'error');
+          return;
+        }
+        showToast(`'${name}' 삭제됨`);
+        await refreshTeamManageList();
+      } catch (e) {
+        showToast(`삭제 오류: ${e.message}`, 'error');
+      }
+    } else if (action === 'edit') {
+      const original = tr.dataset.name;
+      const curName = tr.querySelector('.display-name').textContent;
+      const curHost = tr.querySelector('.display-host').textContent;
+      const curPort = tr.querySelector('.display-port').textContent;
+      tr.dataset.original = original;
+      tr.innerHTML = `
+        <td><input class="edit-name" value="${escapeHtml(curName)}" /></td>
+        <td><input class="edit-host" value="${escapeHtml(curHost)}" /></td>
+        <td><input class="edit-port" type="number" min="1" max="65535" value="${escapeHtml(curPort)}" /></td>
+        <td class="actions">
+          <button class="btn btn-primary" data-action="save">저장</button>
+          <button class="btn" data-action="cancel">취소</button>
+        </td>
+      `;
+    } else if (action === 'save') {
+      const original = tr.dataset.original;
+      const name = tr.querySelector('.edit-name').value.trim();
+      const host = tr.querySelector('.edit-host').value.trim();
+      const port = Number(tr.querySelector('.edit-port').value);
+      try {
+        const res = await fetch('/api/team/peer-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ originalName: original, name, host, port }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`수정 실패: ${err.detail || err.error || res.status}`, 'error');
+          return;
+        }
+        showToast(`'${name}' 수정됨`);
+        await refreshTeamManageList();
+      } catch (e) {
+        showToast(`수정 오류: ${e.message}`, 'error');
+      }
+    } else if (action === 'cancel') {
+      await refreshTeamManageList();
+    }
+  });
+}
+
+if (teamManageEls.csvFile) {
+  teamManageEls.csvFile.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      teamManageEls.csvText.value = text;
+    } catch (err) {
+      showToast(`파일 읽기 실패: ${err.message}`, 'error');
+    } finally {
+      e.target.value = ''; // allow re-select of same file
+    }
+  });
+}
+
+if (teamManageEls.csvApply) {
+  teamManageEls.csvApply.addEventListener('click', async () => {
+    const csv = teamManageEls.csvText.value.trim();
+    if (!csv) { showToast('CSV 내용이 비어있습니다', 'error'); return; }
+    const modeEl = document.querySelector('input[name="bulk-mode"]:checked');
+    const mode = modeEl ? modeEl.value : 'merge';
+    if (mode === 'replace' &&
+        !confirm('전체 팀원 목록을 이 CSV로 교체합니다. 기존 항목은 모두 삭제됩니다. 계속할까요?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/team/peer-bulk-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv, mode }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (err.errors && err.errors.length > 0) {
+          const summary = err.errors
+            .map((e) => `${e.line}행: ${e.message}`)
+            .slice(0, 3)
+            .join(' / ');
+          showToast(`CSV 검증 실패 — ${summary}`, 'error', 6000);
+        } else {
+          showToast(`적용 실패: ${err.error || res.status}`, 'error');
+        }
+        return;
+      }
+      const data = await res.json();
+      showToast(`CSV 적용 완료 (${data.mode} · ${data.accepted}명)`);
+      teamManageEls.csvText.value = '';
+      await refreshTeamManageList();
+    } catch (e) {
+      showToast(`적용 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
+if (teamManageEls.modal) {
+  teamManageEls.modal.addEventListener('click', (e) => {
+    if (e.target === teamManageEls.modal || e.target.matches('[data-close]')) {
+      closeTeamManageModal();
+    }
+  });
+}
+
+if (teamManageEls.openBtn) {
+  teamManageEls.openBtn.addEventListener('click', openTeamManageModal);
+}
 
 loadTeamState();

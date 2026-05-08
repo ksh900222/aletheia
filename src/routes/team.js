@@ -6,8 +6,17 @@ const sync = require('../team/sync');
 const exporter = require('../team/exporter');
 const broadcaster = require('../team/peerBroadcaster');
 const events = require('../team/events');
+const csvPeers = require('../team/csvPeers');
 
 const router = express.Router();
+
+function validatePeerEntry(e) {
+  if (!e || typeof e.name !== 'string' || !e.name.trim()) return 'name이 비어 있음';
+  if (typeof e.host !== 'string' || !e.host.trim()) return 'host가 비어 있음';
+  const port = Number(e.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return 'port가 유효하지 않음';
+  return null;
+}
 
 function tokenAuth(req, res, next) {
   const cfg = settings.get();
@@ -49,24 +58,43 @@ router.post('/peer-update', tokenAuth, express.json(), (req, res) => {
   }
 
   // Echo prevention: remember these as recently-broadcast so the upcoming
-  // CSV reload (triggered by our own write) does not re-send them outward.
+  // store-write event does not re-send them outward.
   for (const e of valid) {
     broadcaster.rememberBroadcast(`${e.name}|${e.host}|${e.port}`);
   }
 
-  const current = peerWatcher.getPeers();
-  const byName = new Map(current.map((p) => [p.name, p]));
-  for (const e of valid) {
-    byName.set(e.name, { name: e.name, host: e.host, port: e.port });
-  }
-  const merged = Array.from(byName.values());
-
   peerWatcher.markInboundWrite();
-  peerWatcher.writePeers(merged);
+  peerWatcher.bulkUpsertPeers(valid.map((e) => ({
+    name: e.name, host: e.host, port: e.port,
+  })));
 
   events.record('peer_update_received', { origin: origin || null, entries: valid });
 
   res.json({ accepted: valid.length, origin: origin || null });
+});
+
+router.post('/peer-remove-received', tokenAuth, express.json(), (req, res) => {
+  const { origin, names } = req.body || {};
+  if (!Array.isArray(names)) {
+    return res.status(400).json({ error: 'invalid_payload' });
+  }
+  const self = settings.get().self.name;
+  const valid = names.filter((n) => typeof n === 'string' && n && n !== self);
+  if (valid.length === 0) {
+    return res.json({ removed: 0, origin: origin || null });
+  }
+
+  for (const n of valid) broadcaster.rememberRemoval(n);
+
+  let removed = 0;
+  for (const n of valid) {
+    peerWatcher.markInboundWrite();
+    if (peerWatcher.removePeer(n)) removed += 1;
+  }
+
+  events.record('peer_remove_received', { origin: origin || null, names: valid });
+
+  res.json({ removed, origin: origin || null });
 });
 
 router.get('/events', (req, res) => {
@@ -107,6 +135,8 @@ router.get('/merged', (req, res) => {
   for (const peer of cache.getAllPeerStates()) {
     if (peer.status !== 'ok' || !peer.data) continue;
     const owner = peer.name;
+    const peerHost = peer.host;
+    const peerPort = peer.port;
     const d = peer.data;
     const catById = new Map((d.categories || []).map((c) => [c.id, c]));
     const schedById = new Map((d.schedules || []).map((s) => [s.id, s]));
@@ -137,8 +167,17 @@ router.get('/merged', (req, res) => {
       const sIds = rsByReport.get(r.id) || [];
       const scheds = sIds.map((id) => schedById.get(id)).filter(Boolean)
         .map((s) => ({ ...s, owner }));
-      const atts = (attsByReport.get(r.id) || []).map((a) => ({ ...a, owner }));
-      merged.reports.push({ ...r, owner, categories: cats, schedules: scheds, attachments: atts });
+      // peerHost/peerPort on each attachment lets the frontend build the
+      // direct download URL (http://<peerHost>:<peerPort>/uploads/<path>) for
+      // upload-kind attachments. local_path attachments are displayed as
+      // text-only since the path only exists on the peer's filesystem.
+      const atts = (attsByReport.get(r.id) || []).map((a) => ({
+        ...a, owner, peerHost, peerPort,
+      }));
+      merged.reports.push({
+        ...r, owner, peerHost, peerPort,
+        categories: cats, schedules: scheds, attachments: atts,
+      });
     }
   }
   res.json({ mode: 'ON', lastSyncAt: cache.getLastSyncAt(), ...merged });
@@ -162,6 +201,99 @@ router.post('/sync', async (req, res) => {
   }
   await sync.syncAll();
   res.json({ ok: true, lastSyncAt: cache.getLastSyncAt() });
+});
+
+// ───── Local UI: peer list management (CRUD + bulk import) ─────
+// All of the below mutate peerStore. peerBroadcaster watches peerStore and
+// fans out add/edit/remove to other peers automatically.
+
+router.post('/peer-add', (req, res) => {
+  const e = {
+    name: (req.body && req.body.name || '').trim(),
+    host: (req.body && req.body.host || '').trim(),
+    port: Number(req.body && req.body.port),
+  };
+  const err = validatePeerEntry(e);
+  if (err) return res.status(400).json({ error: 'invalid', detail: err });
+  if (e.name === settings.get().self.name) {
+    return res.status(400).json({ error: 'invalid', detail: 'self.name은 peer 목록에 추가할 수 없음' });
+  }
+  if (peerWatcher.getPeers().some((p) => p.name === e.name)) {
+    return res.status(409).json({ error: 'duplicate_name' });
+  }
+  peerWatcher.upsertPeer(e);
+  res.json({ ok: true, peer: e });
+});
+
+router.post('/peer-edit', (req, res) => {
+  const original = (req.body && req.body.originalName || '').trim();
+  const e = {
+    name: (req.body && req.body.name || '').trim(),
+    host: (req.body && req.body.host || '').trim(),
+    port: Number(req.body && req.body.port),
+  };
+  const err = validatePeerEntry(e);
+  if (err) return res.status(400).json({ error: 'invalid', detail: err });
+  if (!original) return res.status(400).json({ error: 'missing_original_name' });
+  if (e.name === settings.get().self.name) {
+    return res.status(400).json({ error: 'invalid', detail: 'self.name은 peer 이름으로 사용할 수 없음' });
+  }
+  const existed = peerWatcher.getPeers().some((p) => p.name === original);
+  if (!existed) return res.status(404).json({ error: 'not_found' });
+  // Rename: remove the old key first to avoid leaving an orphan row.
+  if (original !== e.name) {
+    if (peerWatcher.getPeers().some((p) => p.name === e.name)) {
+      return res.status(409).json({ error: 'duplicate_name' });
+    }
+    peerWatcher.removePeer(original);
+  }
+  peerWatcher.upsertPeer(e);
+  res.json({ ok: true, peer: e });
+});
+
+router.post('/peer-remove', (req, res) => {
+  const name = (req.body && req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'missing_name' });
+  const ok = peerWatcher.removePeer(name);
+  if (!ok) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, name });
+});
+
+router.post('/peer-bulk-import', (req, res) => {
+  // Accepts either { csv: "<text>" } or { entries: [...] }, plus
+  // mode: 'merge' (default) | 'replace'.
+  const body = req.body || {};
+  let entries = [];
+  let parseErrors = [];
+  if (typeof body.csv === 'string' && body.csv.trim()) {
+    const r = csvPeers.parse(body.csv);
+    entries = r.entries;
+    parseErrors = r.errors;
+  } else if (Array.isArray(body.entries)) {
+    for (const e of body.entries) {
+      const err = validatePeerEntry(e);
+      if (err) parseErrors.push({ message: err, entry: e });
+      else entries.push({ name: e.name.trim(), host: e.host.trim(), port: Number(e.port) });
+    }
+  } else {
+    return res.status(400).json({ error: 'invalid_payload' });
+  }
+  if (parseErrors.length > 0) {
+    return res.status(400).json({ error: 'parse_errors', errors: parseErrors });
+  }
+  // Drop self.name from the import — never adds itself as a peer.
+  const selfName = settings.get().self.name;
+  entries = entries.filter((e) => e.name !== selfName);
+  if (entries.length === 0) {
+    return res.status(400).json({ error: 'empty_import' });
+  }
+  const mode = body.mode === 'replace' ? 'replace' : 'merge';
+  if (mode === 'replace') {
+    peerWatcher.replaceAllPeers(entries);
+  } else {
+    peerWatcher.bulkUpsertPeers(entries);
+  }
+  res.json({ ok: true, mode, accepted: entries.length });
 });
 
 module.exports = router;
