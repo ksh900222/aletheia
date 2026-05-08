@@ -10,6 +10,10 @@ const reportsRouter = require('./routes/reports');
 const attachmentsRouter = require('./routes/attachments');
 const scheduler = require('./engine/scheduler');
 const holidays = require('./holidays');
+const teamSettings = require('./team/settings');
+const peerWatcher = require('./team/peerWatcher');
+const peerBroadcaster = require('./team/peerBroadcaster');
+const teamRouter = require('./routes/team');
 
 const app = express();
 // PORT — defaults to 3000. Override with PORT=4000 node src/server.js.
@@ -54,6 +58,11 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ ip: clientIp(req), canWrite: canWrite(req) });
 });
 
+// Team router is mounted BEFORE the IP write-guard so cross-peer endpoints
+// (peer-update, etc.) can be reached from any team-member IP. The router
+// enforces shared-token auth on those endpoints internally.
+app.use('/api/team', teamRouter);
+
 app.use((req, res, next) => {
   const m = req.method;
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
@@ -96,6 +105,21 @@ app.use((err, req, res, next) => {
 // Korean holiday cache: load from disk, then schedule daily refresh.
 holidays.load();
 holidays.scheduleDaily();
+
+// Team peer config — peerWatcher delegates to peerStore (SQLite). Migration
+// from legacy CSV runs inside start() if the DB is empty. peerBroadcaster
+// hooks onChange AFTER start() so the migration's bulk-upsert isn't sent out.
+teamSettings.load();
+peerWatcher.start();
+peerBroadcaster.init();
+// Boot-time announcement: push my current peer list to every peer once. This
+// catches peers that were offline when I made local changes, and bootstraps
+// new instances that don't yet know what I know. Fire-and-forget — failures
+// just mean those peers will catch up next time someone changes something.
+setImmediate(() => {
+  peerBroadcaster.announceCurrentList()
+    .catch((e) => console.warn('[team] boot announce 오류:', e.message));
+});
 
 app.listen(PORT, HOST, () => {
   console.log(`project_planner listening on http://${HOST}:${PORT}`);

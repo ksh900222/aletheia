@@ -1,0 +1,13 @@
+{
+  "self": {
+    "name": "본인이름",
+    "port": 3000
+  },
+  "sharedToken": "TEAM-PRESHARED-KEY-CHANGE-ME",
+  "syncIntervalSec": 60,
+  "requestTimeoutMs": 5000,
+  "peerBroadcast": {
+    "enabled": true,
+    "debounceMs": 500
+  }
+}
