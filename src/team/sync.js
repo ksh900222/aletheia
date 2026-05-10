@@ -52,7 +52,12 @@ async function syncAll() {
   if (cache.getMode() !== 'ON') return;
   const peers = peerWatcher.getPeers();
   const self = settings.get().self.name;
-  const valid = peers.filter((p) => p.name && p.name !== self);
+  // Skip entries that point at ourselves: same name OR same host+port as
+  // self (the user might have added their own machine under a different
+  // name, in which case syncing would pull our own data back as "team data").
+  const valid = peers.filter((p) =>
+    p.name && p.name !== self && !peerWatcher.isSelfEntry(p)
+  );
 
   const validNames = new Set(valid.map((p) => p.name));
   for (const old of cache.knownNames()) {
