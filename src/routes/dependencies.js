@@ -34,7 +34,10 @@ function recomputeForEndpoints(endpoints) {
   }
 }
 
-const ENTITY_TYPES = new Set(['schedule', 'category']);
+// H-12: 카테고리 의존성 disable (사용자 결정). 신규 생성/편집은 schedule
+// 끼리만 허용. 기존 DB 의 category 타입 row 는 GET 으로는 조회 가능하지만
+// 변경/추가 경로에서는 거부됨. 재활성화 시 'category' 추가만 하면 됨.
+const ENTITY_TYPES = new Set(['schedule' /*, 'category'*/]);
 const LINK_TYPES = new Set(['strong', 'weak']);
 const ON_DELAY = new Set(['auto_shift', 'warn_only']);
 

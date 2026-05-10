@@ -223,7 +223,9 @@
           <label>선행 종류 (먼저 끝남)
             <select name="pred_type">
               <option value="schedule">스케줄</option>
+              <!-- H-12: 카테고리 의존성 disable. 사용 안 함 (사용자 결정).
               <option value="category">카테고리</option>
+              -->
             </select>
           </label>
           <label>선행 대상
@@ -234,7 +236,9 @@
           <label>후행 종류 (나중에 시작)
             <select name="succ_type">
               <option value="schedule">스케줄</option>
+              <!-- H-12: 카테고리 의존성 disable.
               <option value="category">카테고리</option>
+              -->
             </select>
           </label>
           <label>후행 대상
@@ -329,7 +333,9 @@
               <select name="pred_type">
                 <option value="">— 선택 안 함 —</option>
                 <option value="schedule">스케줄</option>
+                <!-- H-12: 카테고리 의존성 disable.
                 <option value="category">카테고리</option>
+                -->
               </select>
             </label>
             <label>대상
@@ -343,7 +349,9 @@
           <div class="row">
             <label>종류
               <select name="current_type">
+                <!-- H-12: 카테고리 의존성 disable. "현재"는 schedule만 가능.
                 <option value="category">카테고리</option>
+                -->
                 <option value="schedule">스케줄</option>
               </select>
             </label>
@@ -360,7 +368,9 @@
               <select name="succ_type">
                 <option value="">— 선택 안 함 —</option>
                 <option value="schedule">스케줄</option>
+                <!-- H-12: 카테고리 의존성 disable.
                 <option value="category">카테고리</option>
+                -->
               </select>
             </label>
             <label>대상
