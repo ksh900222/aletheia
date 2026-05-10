@@ -6,6 +6,7 @@ const db = require('../db');
 const settings = require('../team/settings');
 const peerWatcher = require('../team/peerWatcher');
 const events = require('../team/events');
+const scheduler = require('../engine/scheduler');
 
 const router = express.Router();
 
@@ -381,13 +382,20 @@ router.post('/sync-outbound', async (req, res) => {
 // the recipient turns it into a real schedule on their own planner. If a
 // schedule was already linked, this updates it; otherwise it inserts a new
 // schedule and stores its id on the task_requests row.
+// actual_* must be seeded to the planned range — leaving them NULL paints the
+// gantt bar with the .shifted (warning) color because planShifted in the
+// frontend treats actual!=planned as "engine moved it". Mirrors POST /schedules.
 const insertScheduleStmt = db.prepare(
-  `INSERT INTO schedules (category_id, title, description, planned_start, planned_end, status)
-   VALUES (?, ?, ?, ?, ?, ?)`
+  `INSERT INTO schedules (category_id, title, description,
+                          planned_start, planned_end,
+                          actual_start, actual_end, status)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 );
 const updateScheduleStmt = db.prepare(
   `UPDATE schedules SET category_id = ?, title = ?, description = ?,
-                        planned_start = ?, planned_end = ?, status = ?,
+                        planned_start = ?, planned_end = ?,
+                        actual_start = ?, actual_end = ?,
+                        status = ?,
                         updated_at = datetime('now')
     WHERE id = ?`
 );
@@ -425,13 +433,24 @@ router.post('/:id/save-schedule', express.json(), (req, res) => {
   let schedId = row.schedule_id;
   db.transaction(() => {
     if (schedId) {
-      updateScheduleStmt.run(categoryId, title, description, start, end, status, schedId);
+      // On edit, snap actual_* to the new plan so the bar renders as
+      // unshifted; the recompute below restores any cascaded actuals.
+      updateScheduleStmt.run(
+        categoryId, title, description, start, end, start, end, status, schedId
+      );
     } else {
-      const info = insertScheduleStmt.run(categoryId, title, description, start, end, status);
+      const info = insertScheduleStmt.run(
+        categoryId, title, description, start, end, start, end, status
+      );
       schedId = info.lastInsertRowid;
       linkScheduleToTaskStmt.run(schedId, id);
     }
   })();
+  // Apply any dependency cascades the new/edited schedule triggers — same as
+  // POST /schedules. Without this, downstream items wouldn't reflow.
+  try { scheduler.recomputeFromScheduleChange(schedId); } catch (e) {
+    console.warn('[tasks] save-schedule recompute failed:', e.message);
+  }
   res.json({ ok: true, schedule_id: schedId });
 });
 
