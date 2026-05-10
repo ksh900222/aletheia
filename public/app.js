@@ -4155,7 +4155,9 @@ function handleTeamEvent(ev) {
     const label = TASK_STATUS_LABEL ? (TASK_STATUS_LABEL[status] || status) : status;
     const preview = ev.detail.bodyPreview ? ` — ${ev.detail.bodyPreview}` : '';
     showToast(`${responder}: ${label}${preview}`, 'info', 5000);
-    // If outbound list modal is open, refresh to update border colors.
+    // If outbound list modal is open, refresh inline (status border updates).
+    // The push has already updated local DB via /task-response-in so a plain
+    // load-and-render is enough — no need to also pull.
     if (taskEls.outboundModal && !taskEls.outboundModal.classList.contains('hidden')) {
       loadAndRenderOutbound().catch(() => {});
     }
@@ -4680,7 +4682,18 @@ const taskEls = {
 let taskPendingFiles = [];
 
 function openTaskChoiceModal() {
-  if (taskEls.choiceModal) taskEls.choiceModal.classList.remove('hidden');
+  if (!taskEls.choiceModal) return;
+  // 「요청할 업무」 는 팀 전체계획 ON 일 때만 활성. cross-peer 전송이
+  // 필요하기 때문. 「요청한/받은 업무」 는 로컬 DB 조회라 OFF 에서도
+  // 그대로 열람 가능.
+  const teamOn = state.team && state.team.mode === 'ON';
+  if (taskEls.composeChoice) {
+    taskEls.composeChoice.disabled = !teamOn;
+    taskEls.composeChoice.title = teamOn
+      ? '새 업무를 요청 작성'
+      : '팀 전체계획을 ON 으로 켜야 사용할 수 있습니다';
+  }
+  taskEls.choiceModal.classList.remove('hidden');
 }
 function closeTaskChoiceModal() {
   if (taskEls.choiceModal) taskEls.choiceModal.classList.add('hidden');
@@ -4813,12 +4826,25 @@ if (taskEls.outboundModal) {
   });
 }
 if (taskEls.outboundRefresh) {
-  taskEls.outboundRefresh.addEventListener('click', loadAndRenderOutbound);
+  taskEls.outboundRefresh.addEventListener('click', syncAndRenderOutbound);
 }
 
 async function openTaskOutboundModal() {
   if (!taskEls.outboundModal) return;
   taskEls.outboundModal.classList.remove('hidden');
+  await syncAndRenderOutbound();
+}
+
+// Pull-style reconcile + render. Runs sync-outbound (best-effort across all
+// peers; offline peers don't break it) so that responses pushed earlier
+// while we were unreachable still show up. Sync errors are logged but
+// don't block rendering — we still show whatever's in our local DB.
+async function syncAndRenderOutbound() {
+  try {
+    await fetch('/api/tasks/sync-outbound', { method: 'POST' });
+  } catch (e) {
+    // network failure of the sync itself — fine, fall through
+  }
   await loadAndRenderOutbound();
 }
 
@@ -5114,6 +5140,21 @@ async function openTaskDetail(reqId) {
 
   renderCommentsInto('task-detail-comments-list', null, r.comments || [], { editable: false });
   if (taskDetailEls.commentInput) taskDetailEls.commentInput.value = '';
+
+  // Response actions need to forward to the sender's peer, which only makes
+  // sense when team mode is ON. Disable the input + 수락/조정/거부 buttons
+  // when OFF so the user gets a clear "you need ON to respond" signal.
+  const teamOn = state.team && state.team.mode === 'ON';
+  if (taskDetailEls.commentInput) {
+    taskDetailEls.commentInput.disabled = !teamOn;
+    taskDetailEls.commentInput.placeholder = teamOn
+      ? '조정·거부 시 사유를 작성하세요'
+      : '팀 전체계획을 ON 으로 켜야 응답할 수 있습니다';
+  }
+  taskDetailEls.modal.querySelectorAll('button[data-action]').forEach((btn) => {
+    btn.disabled = !teamOn;
+  });
+
   taskDetailEls.modal.classList.remove('hidden');
 }
 

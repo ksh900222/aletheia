@@ -195,8 +195,13 @@ router.post('/:id/respond', express.json(), async (req, res) => {
   // Forward to sender so their outbound row updates too. row.sender is the
   // peer name; row.group_id ties the matching outbound row.
   const target = peerWatcher.getPeers().find((p) => p.name === row.sender);
-  if (target && cfg.sharedToken) {
+  if (!target) {
+    console.warn(`[task] response forward 스킵 — peer list 에 sender '${row.sender}' 없음`);
+  } else if (!cfg.sharedToken) {
+    console.warn(`[task] response forward 스킵 — sharedToken 미설정`);
+  } else {
     const url = `http://${target.host}:${target.port}/api/team/task-response-in`;
+    console.log(`[task] response forward → ${row.sender} (${url}) status=${newStatus} group=${row.group_id}`);
     fetch(url, {
       method: 'POST',
       headers: {
@@ -210,10 +215,94 @@ router.post('/:id/respond', express.json(), async (req, res) => {
         comment: body || null,
       }),
       signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        console.warn(`[task] response forward → ${row.sender} HTTP ${r.status} ${txt}`);
+      } else {
+        console.log(`[task] response forward → ${row.sender} OK`);
+      }
     }).catch((e) => console.warn(`[task] response forward → ${row.sender} 실패: ${e.message}`));
   }
 
   res.json({ ok: true, id, status: newStatus });
+});
+
+// POST /api/tasks/sync-outbound — pull authoritative status + comments from
+// every peer in our list. Updates our local outbound rows so the UI reflects
+// reality even when an earlier push (task-response-in) was missed.
+router.post('/sync-outbound', async (req, res) => {
+  const cfg = settings.get();
+  if (!cfg.sharedToken) {
+    return res.status(503).json({ error: 'team_token_not_configured' });
+  }
+  const peers = peerWatcher.getPeers().filter((p) => !peerWatcher.isSelfEntry(p));
+  const summary = { syncedPeers: 0, updatedRows: 0, errors: [] };
+
+  const findOutboundStmt = db.prepare(
+    `SELECT id, status FROM task_requests
+      WHERE direction = 'outbound' AND group_id = ? AND recipient = ?`
+  );
+  const updateStatusStmt = db.prepare(
+    `UPDATE task_requests SET status = ? WHERE id = ?`
+  );
+  const deleteCmtsStmt = db.prepare(
+    `DELETE FROM task_request_comments WHERE task_request_id = ?`
+  );
+  const insertCmtStmt = db.prepare(
+    `INSERT INTO task_request_comments (task_request_id, author, body, created_at)
+     VALUES (?, ?, ?, ?)`
+  );
+
+  await Promise.all(peers.map(async (peer) => {
+    const url = `http://${peer.host}:${peer.port}/api/team/task-statuses-for-sender`;
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Team-Token': cfg.sharedToken,
+        },
+        body: JSON.stringify({ origin: cfg.self.name }),
+        signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+      });
+      if (!r.ok) {
+        summary.errors.push({ peer: peer.name, status: r.status });
+        return;
+      }
+      const data = await r.json().catch(() => ({}));
+      const statuses = Array.isArray(data.statuses) ? data.statuses : [];
+      // Apply each status to our matching outbound row.
+      db.transaction(() => {
+        for (const s of statuses) {
+          const local = findOutboundStmt.get(s.group_id, peer.name);
+          if (!local) continue;
+          let changed = false;
+          if (local.status !== s.status) {
+            updateStatusStmt.run(s.status, local.id);
+            changed = true;
+          }
+          // Replace local comments with authoritative copy from the
+          // responder. Recipient is the only writer of these comments so
+          // their row is the source of truth.
+          const incoming = Array.isArray(s.comments) ? s.comments : [];
+          if (incoming.length > 0) {
+            deleteCmtsStmt.run(local.id);
+            for (const c of incoming) {
+              insertCmtStmt.run(local.id, c.author, c.body, c.created_at);
+            }
+            changed = true;
+          }
+          if (changed) summary.updatedRows += 1;
+        }
+      })();
+      summary.syncedPeers += 1;
+    } catch (e) {
+      summary.errors.push({ peer: peer.name, message: e.message });
+    }
+  }));
+
+  res.json({ ok: true, ...summary });
 });
 
 async function forwardTaskRequests(targets, payload) {

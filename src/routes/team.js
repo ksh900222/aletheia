@@ -621,11 +621,18 @@ router.post('/task-response-in', tokenAuth, express.json(), (req, res) => {
     return res.status(400).json({ error: 'invalid_status' });
   }
   const who = authenticateAndIdentify(req);
-  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
+  if (!who.ok) {
+    console.warn(`[task] task-response-in 거부 — ${who.error} (ip=${who.ip})`);
+    return res.status(403).json({ error: who.error, ip: who.ip });
+  }
+  console.log(`[task] task-response-in 수신: from=${who.name} group=${group_id} status=${status}`);
 
   // Find sender's outbound row that matches (group_id, recipient = origin).
   const row = findOutboundByGroupAndRecipientStmt.get(group_id, who.name);
-  if (!row) return res.status(404).json({ error: 'outbound_not_found' });
+  if (!row) {
+    console.warn(`[task] task-response-in: outbound 매칭 실패 — group_id='${group_id}' recipient='${who.name}' (현재 outbound rows 의 group_id 와 recipient 가 일치해야 함)`);
+    return res.status(404).json({ error: 'outbound_not_found' });
+  }
 
   db.transaction(() => {
     updateTaskStatusStmt.run(status, row.id);
@@ -643,6 +650,28 @@ router.post('/task-response-in', tokenAuth, express.json(), (req, res) => {
   });
 
   res.json({ ok: true, id: row.id });
+});
+
+// Cross-peer pull endpoint — caller (the original sender) asks "what are
+// the inbound rows you have where I'm the sender, plus their comments?".
+// Used by the requester to reconcile statuses if the push (task-response-in)
+// failed earlier (recipient was offline when sender pushed, network blip,
+// etc.). Returns the responder's authoritative state per thread.
+router.post('/task-statuses-for-sender', tokenAuth, express.json(), (req, res) => {
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
+  const rows = db.prepare(
+    `SELECT id, group_id, status, body, deadline, created_at, sender, recipient
+       FROM task_requests
+      WHERE direction = 'inbound' AND sender = ?
+      ORDER BY id ASC`
+  ).all(who.name);
+  const getCmts = db.prepare(
+    `SELECT id, author, body, created_at FROM task_request_comments
+      WHERE task_request_id = ? ORDER BY id ASC`
+  );
+  const out = rows.map((r) => ({ ...r, comments: getCmts.all(r.id) }));
+  res.json({ statuses: out });
 });
 
 router.post('/peer-announce', async (req, res) => {
