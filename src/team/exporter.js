@@ -6,9 +6,10 @@ function computeVersion() {
       (SELECT COUNT(*) FROM categories) || '|' || COALESCE((SELECT MAX(created_at) FROM categories), '') AS c,
       (SELECT COUNT(*) FROM schedules)  || '|' || COALESCE((SELECT MAX(updated_at) FROM schedules), '')  AS s,
       (SELECT COUNT(*) FROM dependencies) || '|' || COALESCE((SELECT MAX(created_at) FROM dependencies), '') AS d,
-      (SELECT COUNT(*) FROM reports)    || '|' || COALESCE((SELECT MAX(updated_at) FROM reports), '')    AS r
+      (SELECT COUNT(*) FROM reports)    || '|' || COALESCE((SELECT MAX(updated_at) FROM reports), '')    AS r,
+      (SELECT COUNT(*) FROM report_comments) || '|' || COALESCE((SELECT MAX(created_at) FROM report_comments), '') AS rc
   `).get();
-  return [row.c, row.s, row.d, row.r].join('::');
+  return [row.c, row.s, row.d, row.r, row.rc].join('::');
 }
 
 function collectSnapshot() {
