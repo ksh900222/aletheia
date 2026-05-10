@@ -218,6 +218,9 @@ router.post('/peer-add', (req, res) => {
   if (e.name === settings.get().self.name) {
     return res.status(400).json({ error: 'invalid', detail: 'self.name은 peer 목록에 추가할 수 없음' });
   }
+  if (peerWatcher.isSelfEntry(e)) {
+    return res.status(400).json({ error: 'invalid', detail: '본인 IP·포트와 동일 — peer로 등록할 수 없음' });
+  }
   if (peerWatcher.getPeers().some((p) => p.name === e.name)) {
     return res.status(409).json({ error: 'duplicate_name' });
   }
@@ -238,8 +241,14 @@ router.post('/peer-edit', (req, res) => {
   if (e.name === settings.get().self.name) {
     return res.status(400).json({ error: 'invalid', detail: 'self.name은 peer 이름으로 사용할 수 없음' });
   }
-  const existed = peerWatcher.getPeers().some((p) => p.name === original);
-  if (!existed) return res.status(404).json({ error: 'not_found' });
+  const existing = peerWatcher.getPeers().find((p) => p.name === original);
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (peerWatcher.isSelfEntry(existing)) {
+    return res.status(403).json({ error: 'self_protected', detail: '본인 항목은 편집할 수 없음' });
+  }
+  if (peerWatcher.isSelfEntry(e)) {
+    return res.status(400).json({ error: 'invalid', detail: '본인 IP·포트와 동일 — 편집 결과로 본인이 됨' });
+  }
   // Rename: remove the old key first to avoid leaving an orphan row.
   if (original !== e.name) {
     if (peerWatcher.getPeers().some((p) => p.name === e.name)) {
@@ -254,6 +263,10 @@ router.post('/peer-edit', (req, res) => {
 router.post('/peer-remove', (req, res) => {
   const name = (req.body && req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'missing_name' });
+  const target = peerWatcher.getPeers().find((p) => p.name === name);
+  if (target && peerWatcher.isSelfEntry(target)) {
+    return res.status(403).json({ error: 'self_protected', detail: '본인 항목은 삭제할 수 없음' });
+  }
   const ok = peerWatcher.removePeer(name);
   if (!ok) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true, name });
