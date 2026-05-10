@@ -541,7 +541,15 @@
           <ul id="task-detail-comments-list" class="team-comments-list"></ul>
           <div class="team-comments-form">
             <textarea id="task-detail-comment-input" rows="3" placeholder="조정·거부 시 사유를 작성하세요"></textarea>
-            <p class="muted" style="font-size:11px; margin:0;">조정은 코멘트 필수. 수락·거부는 선택.</p>
+            <div class="task-detail-deadline-row">
+              <span class="muted" style="font-size:11px;">제안 기한 (선택)</span>
+              <input type="date" id="task-detail-deadline-date" />
+              <select id="task-detail-deadline-hour" aria-label="시"></select>
+              <span class="task-deadline-sep">:</span>
+              <select id="task-detail-deadline-minute" aria-label="분"></select>
+              <button type="button" id="task-detail-deadline-clear" class="btn">해제</button>
+            </div>
+            <p class="muted" style="font-size:11px; margin:0;">조정은 코멘트 필수. 수락·거부는 선택. 제안 기한은 송신자 측에 「수락」 버튼과 함께 보여집니다.</p>
             <div class="task-detail-actions">
               <button type="button" class="btn task-action-accept" data-action="accept">수락</button>
               <button type="button" class="btn task-action-adjust" data-action="adjust">조정</button>
@@ -551,6 +559,31 @@
         </div>
       </div>
       <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — outbound detail (각 수신자의 응답·코멘트 보기) -->
+  <div id="task-outbound-detail-modal" class="modal hidden">
+    <div class="modal-card task-outbound-detail-card">
+      <h3>요청 상세</h3>
+      <div class="task-outbound-detail-grid">
+        <div class="task-outbound-detail-left">
+          <div class="task-outbound-detail-meta">
+            <div><span class="muted">작성</span> <span id="task-outbound-detail-created"></span></div>
+            <div><span class="muted">기한</span> <span id="task-outbound-detail-deadline"></span></div>
+          </div>
+          <div class="task-outbound-detail-body" id="task-outbound-detail-body"></div>
+          <div id="task-outbound-detail-attachments" class="task-outbound-detail-attachments"></div>
+        </div>
+        <div class="task-outbound-detail-right">
+          <h4 class="team-comments-title">수신자 응답</h4>
+          <div id="task-outbound-detail-recipients" class="task-outbound-detail-recipients"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="task-outbound-detail-reissue" class="btn hidden">다시 요청</button>
         <button type="button" class="btn" data-close>닫기</button>
       </div>
     </div>
@@ -568,45 +601,54 @@
     </div>
   </div>
 
-  <!-- Task request — outbound form modal -->
+  <!-- Task request — outbound form modal (with optional right history pane) -->
   <div id="task-request-modal" class="modal hidden">
     <div class="modal-card task-request-card">
-      <h3>업무 요청 작성</h3>
+      <h3 id="task-request-title">업무 요청 작성</h3>
+      <div class="task-request-grid">
+        <div class="task-request-left">
+          <div class="task-request-section">
+            <label class="task-request-label">수신자
+              <span id="task-request-recipient-count" class="muted" style="font-size:11px;"></span>
+            </label>
+            <div class="task-request-recipients-toolbar">
+              <label><input type="checkbox" id="task-request-select-all" /> 전체 선택</label>
+            </div>
+            <div id="task-request-recipients" class="task-request-recipients"></div>
+          </div>
 
-      <div class="task-request-section">
-        <label class="task-request-label">수신자
-          <span id="task-request-recipient-count" class="muted" style="font-size:11px;"></span>
-        </label>
-        <div class="task-request-recipients-toolbar">
-          <label><input type="checkbox" id="task-request-select-all" /> 전체 선택</label>
+          <div class="task-request-section">
+            <label class="task-request-label" for="task-request-body">본문</label>
+            <textarea id="task-request-body" rows="10"></textarea>
+          </div>
+
+          <div class="task-request-section">
+            <label class="task-request-label">기한 <span class="muted" style="font-size:11px;">(선택)</span></label>
+            <div class="row task-request-deadline-row">
+              <input type="date" id="task-request-deadline-date" />
+              <select id="task-request-deadline-hour" aria-label="시"></select>
+              <span class="task-deadline-sep">:</span>
+              <select id="task-request-deadline-minute" aria-label="분"></select>
+              <button type="button" id="task-request-deadline-clear" class="btn">기한 해제</button>
+            </div>
+          </div>
+
+          <div class="task-request-section">
+            <label class="task-request-label">첨부 <span class="muted" style="font-size:11px;">(선택, 최대 50MB · 20개)</span></label>
+            <div class="task-request-attach-row">
+              <label class="btn">
+                파일 추가
+                <input type="file" id="task-request-files" multiple hidden />
+              </label>
+              <ul id="task-request-file-list" class="task-request-file-list"></ul>
+            </div>
+          </div>
         </div>
-        <div id="task-request-recipients" class="task-request-recipients"></div>
-      </div>
 
-      <div class="task-request-section">
-        <label class="task-request-label" for="task-request-body">본문</label>
-        <textarea id="task-request-body" rows="10"></textarea>
-      </div>
-
-      <div class="task-request-section">
-        <label class="task-request-label">기한 <span class="muted" style="font-size:11px;">(선택)</span></label>
-        <div class="row task-request-deadline-row">
-          <input type="date" id="task-request-deadline-date" />
-          <select id="task-request-deadline-hour" aria-label="시"></select>
-          <span class="task-deadline-sep">:</span>
-          <select id="task-request-deadline-minute" aria-label="분"></select>
-          <button type="button" id="task-request-deadline-clear" class="btn">기한 해제</button>
-        </div>
-      </div>
-
-      <div class="task-request-section">
-        <label class="task-request-label">첨부 <span class="muted" style="font-size:11px;">(선택, 최대 50MB · 20개)</span></label>
-        <div class="task-request-attach-row">
-          <label class="btn">
-            파일 추가
-            <input type="file" id="task-request-files" multiple hidden />
-          </label>
-          <ul id="task-request-file-list" class="task-request-file-list"></ul>
+        <div class="task-request-right hidden" id="task-request-history">
+          <h4 class="team-comments-title">이전 응답 / 코멘트</h4>
+          <p class="muted" style="font-size:11px; margin:0 0 8px;">거부·조정한 수신자가 남긴 사유입니다.</p>
+          <ul id="task-request-history-list" class="team-comments-list"></ul>
         </div>
       </div>
 

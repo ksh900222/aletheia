@@ -49,7 +49,8 @@ const updateTaskStatusStmt = db.prepare(
   `UPDATE task_requests SET status = ? WHERE id = ?`
 );
 const insertTaskCommentStmt = db.prepare(
-  `INSERT INTO task_request_comments (task_request_id, author, body) VALUES (?, ?, ?)`
+  `INSERT INTO task_request_comments (task_request_id, author, body, proposed_deadline)
+   VALUES (?, ?, ?, ?)`
 );
 
 // Authorize a cross-peer write and identify the originating team member.
@@ -568,7 +569,7 @@ router.post('/comment-remove-out', express.json(), async (req, res) => {
 // frontend build that URL since the requester IP is the only identity the
 // network gives us here.
 router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
-  const { body, deadline, group_id, attachments } = req.body || {};
+  const { body, deadline, group_id, attachments, prior_comments } = req.body || {};
   if (typeof body !== 'string' || !body.trim()) {
     return res.status(400).json({ error: 'empty_body' });
   }
@@ -581,6 +582,11 @@ router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
   const recipient = settings.get().self.name;
   const sender = who.name;
   let reqId = null;
+  // Used only when seeding prior comments (need to preserve original ts).
+  const insertCmtWithTs = db.prepare(
+    `INSERT INTO task_request_comments (task_request_id, author, body, created_at, proposed_deadline)
+     VALUES (?, ?, ?, ?, ?)`
+  );
   db.transaction(() => {
     const info = insertTaskReqStmt.run(
       sender, recipient, body.trim(), deadline || null, group_id || null
@@ -593,6 +599,19 @@ router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
         const dn = typeof a.display_name === 'string' ? a.display_name : a.path;
         const sz = Number.isInteger(a.size_bytes) ? a.size_bytes : null;
         insertTaskAttStmt.run(reqId, a.kind, a.path, dn, sz);
+      }
+    }
+    // Seed prior negotiation thread (재요청 시 sender 가 동봉) so the
+    // recipient's new inbound row carries the same comment history.
+    if (Array.isArray(prior_comments) && prior_comments.length > 0) {
+      console.log(`[task] task-request-in: prior_comments ${prior_comments.length}건 수신 → 새 inbound row=${reqId} 에 seed`);
+      for (const c of prior_comments) {
+        if (!c || typeof c !== 'object') continue;
+        const author = typeof c.author === 'string' ? c.author : '?';
+        const cBody = typeof c.body === 'string' ? c.body : '';
+        const ts = typeof c.created_at === 'string' ? c.created_at : new Date().toISOString();
+        const pd = typeof c.proposed_deadline === 'string' ? c.proposed_deadline : null;
+        insertCmtWithTs.run(reqId, author, cBody, ts, pd);
       }
     }
   })();
@@ -612,7 +631,7 @@ router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
 // comment). Updates the matching outbound row's status and replicates the
 // comment so sender's outbound view shows the negotiation.
 router.post('/task-response-in', tokenAuth, express.json(), (req, res) => {
-  const { group_id, status, comment } = req.body || {};
+  const { group_id, status, comment, proposed_deadline } = req.body || {};
   if (typeof group_id !== 'string' || !group_id) {
     return res.status(400).json({ error: 'invalid_group_id' });
   }
@@ -634,10 +653,12 @@ router.post('/task-response-in', tokenAuth, express.json(), (req, res) => {
     return res.status(404).json({ error: 'outbound_not_found' });
   }
 
+  const cBody = typeof comment === 'string' ? comment.trim() : '';
+  const dl = typeof proposed_deadline === 'string' ? proposed_deadline.trim() || null : null;
   db.transaction(() => {
     updateTaskStatusStmt.run(status, row.id);
-    if (typeof comment === 'string' && comment.trim()) {
-      insertTaskCommentStmt.run(row.id, who.name, comment.trim());
+    if (cBody || dl) {
+      insertTaskCommentStmt.run(row.id, who.name, cBody, dl);
     }
   })();
 
@@ -667,7 +688,8 @@ router.post('/task-statuses-for-sender', tokenAuth, express.json(), (req, res) =
       ORDER BY id ASC`
   ).all(who.name);
   const getCmts = db.prepare(
-    `SELECT id, author, body, created_at FROM task_request_comments
+    `SELECT id, author, body, created_at, proposed_deadline
+       FROM task_request_comments
       WHERE task_request_id = ? ORDER BY id ASC`
   );
   const out = rows.map((r) => ({ ...r, comments: getCmts.all(r.id) }));

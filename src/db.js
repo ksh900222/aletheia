@@ -234,5 +234,19 @@ try {
   console.error('[db] report_comments acknowledged migration failed:', e.message);
 }
 
+// Migration: task_request_comments.proposed_deadline — recipient may suggest
+// a new deadline alongside an adjust/reject comment; sender's "다시 요청"
+// modal can offer a one-click 수락 to copy it into the new request's
+// deadline field. Nullable.
+try {
+  const cols = db.prepare(`PRAGMA table_info(task_request_comments)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'proposed_deadline')) {
+    console.log('[db] migrating task_request_comments: adding proposed_deadline column');
+    db.exec(`ALTER TABLE task_request_comments ADD COLUMN proposed_deadline TEXT`);
+  }
+} catch (e) {
+  console.error('[db] task_request_comments proposed_deadline migration failed:', e.message);
+}
+
 module.exports = db;
 module.exports.DB_PATH = DB_PATH;
