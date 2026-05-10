@@ -32,6 +32,7 @@ const WRITE_ALLOWLIST = new Set([
   '10.115.41.127',
   '10.115.33.155', // 임시 비활성화 — 다시 권한을 주려면 주석 해제
   '10.115.147.185',
+  '192.168.0.16',  // 외부망 (집/공유기 등) 접속 IP
   // Loopback included so the operator can administer from the host machine
   // itself. Remove these two lines if local writes should also be blocked.
   '127.0.0.1',
