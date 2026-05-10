@@ -24,7 +24,7 @@ function collectSnapshot() {
       `SELECT id, report_id, kind, path, display_name, size_bytes, created_at FROM attachments`
     ).all(),
     report_comments: db.prepare(
-      `SELECT id, report_id, author, body, created_at FROM report_comments`
+      `SELECT id, report_id, author, body, created_at, acknowledged FROM report_comments`
     ).all(),
   };
 }

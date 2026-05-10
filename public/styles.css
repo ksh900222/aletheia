@@ -1461,6 +1461,27 @@ body.readonly .modal select {
   margin-left: 8px;
   vertical-align: middle;
 }
+
+/* "받은 코멘트 N" indicator — same shape as my-comment-badge but a different
+   accent (warning) so the user can tell at a glance "someone left feedback
+   on my report and I haven't acked it yet". */
+.received-comment-badge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Acked received comment — slight visual de-emphasis so unread ones are
+   the focal point. */
+.team-comments-list li.comment-acked .team-comment-body { opacity: 0.7; }
+.team-comments-list li.comment-acked .team-comment-author { opacity: 0.85; }
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

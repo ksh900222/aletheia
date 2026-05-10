@@ -781,6 +781,23 @@ function myCommentBadgeHtml(count) {
   return ` <span class="my-comment-badge" title="내가 남긴 코멘트가 있습니다">내 코멘트 ${count}</span>`;
 }
 
+// Number of UNREAD comments received on this report. Only meaningful for
+// own reports — team-owned reports' acknowledgement is the other peer's
+// concern, not visible/relevant here.
+function countUnreadReceivedComments(r) {
+  if (!r || r.owner) return 0; // team-owned: skip
+  if (!Array.isArray(r.comments)) return 0;
+  const selfName = (state.team.self && state.team.self.name) || '';
+  return r.comments.filter(
+    (c) => !c.acknowledged && c.author !== selfName
+  ).length;
+}
+
+function receivedCommentBadgeHtml(count) {
+  if (!count || count <= 0) return '';
+  return ` <span class="received-comment-badge" title="확인하지 않은 받은 코멘트">받은 코멘트 ${count}</span>`;
+}
+
 // "2025-05-06" → "2025년 05월 06일 (수)". UTC base avoids local-tz drift
 // since report dates are stored as plain YYYY-MM-DD calendar dates.
 function formatDateKo(iso) {
@@ -2789,7 +2806,10 @@ function openReportModal(report) {
   }
   // Comments panel (own reports — read-only). Re-rendered automatically
   // when a comment_received event arrives while modal is open.
-  renderOwnReportComments(report ? (report.comments || []) : []);
+  renderOwnReportComments(
+    report ? (report.comments || []) : [],
+    report ? report.id : null
+  );
   // Attachments section is always visible — file uploads / local paths are
   // buffered client-side until the report is saved (POST flushes them).
   els.attachmentsSection.classList.remove('hidden');
@@ -3252,13 +3272,18 @@ function renderAllReportsView() {
         return `<span class="schedule-pill"${statusAttr} style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join('');
 
-    // OFF mode (default — date 그룹) — append "내 코멘트 N" indicator next
-    // to the schedule pills on this specific report. ON mode hides this
-    // since the indicator already appears on the date heading.
+    // OFF mode (default — date 그룹) — append indicators next to the
+    // schedule pills on this specific report:
+    //   "내 코멘트 N"   : 내가 남긴 코멘트 수 (팀 리포트인 경우)
+    //   "받은 코멘트 N" : 미확인 받은 코멘트 수 (본인 리포트인 경우)
+    // ON mode 에서는 같은 정보가 날짜 헤더에 이미 있으므로 여기선 숨김.
     const offModeMyCount = state.allReportsBySchedule ? 0 : countMyComments(r);
-    const offModeBadge = myCommentBadgeHtml(offModeMyCount);
-    const schedulesHtml = (schedPills || offModeBadge)
-      ? `<div class="report-item-schedules">${schedPills}${offModeBadge}</div>`
+    const offModeRecvCount = state.allReportsBySchedule ? 0 : countUnreadReceivedComments(r);
+    const offModeMyBadge = myCommentBadgeHtml(offModeMyCount);
+    const offModeRecvBadge = receivedCommentBadgeHtml(offModeRecvCount);
+    const offModeBadges = offModeMyBadge + offModeRecvBadge;
+    const schedulesHtml = (schedPills || offModeBadges)
+      ? `<div class="report-item-schedules">${schedPills}${offModeBadges}</div>`
       : '';
 
     li.innerHTML = `
@@ -3287,13 +3312,20 @@ function renderAllReportsView() {
       dateGroup.className = 'reports-date-group';
       const dateHead = document.createElement('h4');
       dateHead.textContent = formatDateKo(date);
-      // ON mode (스케줄별 그룹) — append "내 코멘트 N" indicator to date head
-      // when this user authored at least one comment on the date's reports.
+      // ON mode (스케줄별 그룹) — append indicators to date head:
+      //   "내 코멘트 N"     : 내가 다른 팀원 리포트에 남긴 코멘트 수
+      //   "받은 코멘트 N"   : 본인 리포트에 와있는 미확인 코멘트 수
       if (state.allReportsBySchedule) {
         const dayReports0 = byDate.get(date);
         const myCount = dayReports0.reduce((s, r) => s + countMyComments(r), 0);
+        const recvCount = dayReports0.reduce(
+          (s, r) => s + countUnreadReceivedComments(r), 0
+        );
         if (myCount > 0) {
           dateHead.insertAdjacentHTML('beforeend', myCommentBadgeHtml(myCount));
+        }
+        if (recvCount > 0) {
+          dateHead.insertAdjacentHTML('beforeend', receivedCommentBadgeHtml(recvCount));
         }
       }
       dateGroup.appendChild(dateHead);
@@ -3527,10 +3559,13 @@ function renderCommentsInto(listId, countId, comments, opts) {
   const count = document.getElementById(countId);
   if (!list) return;
   const arr = comments || [];
-  // editable=true → render 편집/삭제 buttons on rows the viewer authored.
-  // Owner is the report owner (peer name); used to forward edits/deletes.
+  // editable=true → 본인이 작성한 코멘트에 「편집/삭제」 버튼
+  // ackable=true  → 타인이 작성한 미확인 코멘트에 「확인」 버튼 (본인 리포트 모달 전용)
+  // reportId=N    → ack 요청에 사용할 리포트 ID
   const editable = !!(opts && opts.editable);
+  const ackable = !!(opts && opts.ackable);
   const owner = (opts && opts.owner) || '';
+  const reportId = (opts && opts.reportId) || '';
   const selfName = (state.team.self && state.team.self.name) || '';
   list.innerHTML = '';
   if (count) count.textContent = arr.length > 0 ? `(${arr.length})` : '';
@@ -3551,6 +3586,8 @@ function renderCommentsInto(listId, countId, comments, opts) {
     const li = document.createElement('li');
     li.dataset.commentId = String(c.id);
     if (owner) li.dataset.owner = owner;
+    if (reportId) li.dataset.reportId = String(reportId);
+    if (c.acknowledged) li.classList.add('comment-acked');
     const head = document.createElement('div');
     head.className = 'team-comment-head';
     const author = document.createElement('span');
@@ -3565,12 +3602,22 @@ function renderCommentsInto(listId, countId, comments, opts) {
     body.textContent = c.body || '';
     li.appendChild(head);
     li.appendChild(body);
+
+    const actionParts = [];
     if (editable && selfName && c.author === selfName) {
+      actionParts.push('<button type="button" class="btn-link" data-action="edit-comment">편집</button>');
+      actionParts.push('<button type="button" class="btn-link btn-link-danger" data-action="remove-comment">삭제</button>');
+    }
+    if (ackable && c.author !== selfName && !c.acknowledged) {
+      actionParts.push('<button type="button" class="btn-link" data-action="ack-comment">확인</button>');
+    }
+    if (ackable && c.acknowledged) {
+      actionParts.push('<span class="muted" style="font-size:11px;">확인됨</span>');
+    }
+    if (actionParts.length > 0) {
       const actions = document.createElement('div');
       actions.className = 'team-comment-actions';
-      actions.innerHTML =
-        '<button type="button" class="btn-link" data-action="edit-comment">편집</button>' +
-        '<button type="button" class="btn-link btn-link-danger" data-action="remove-comment">삭제</button>';
+      actions.innerHTML = actionParts.join('');
       li.appendChild(actions);
     }
     list.appendChild(li);
@@ -3584,9 +3631,11 @@ function renderTeamCommentsList(comments, owner) {
   });
 }
 
-function renderOwnReportComments(comments) {
+function renderOwnReportComments(comments, reportId) {
   renderCommentsInto('report-comments-list', 'report-comments-count', comments, {
     editable: false,
+    ackable: true,
+    reportId: reportId || state.editingReportId || '',
   });
 }
 
@@ -4094,7 +4143,7 @@ async function refreshOwnReportComments(reportId) {
   try {
     const r = await api('GET', `/api/reports/${reportId}`);
     if (r && Array.isArray(r.comments)) {
-      renderOwnReportComments(r.comments);
+      renderOwnReportComments(r.comments, reportId);
     }
   } catch { /* ignore — toast already informed user */ }
 }
@@ -4156,6 +4205,42 @@ if (teamCommentsSubmitBtn) {
 // Edit/delete on own comments inside the team report viewer modal. Single
 // delegated listener — renderCommentsInto wipes the list on each render so
 // per-row listeners would leak.
+// "확인" button on received comments inside the OWN report modal. Local
+// action — POST /api/reports/:rid/comments/:cid/ack to flip acknowledged
+// flag, then optimistically update local state so the unread indicator
+// drops without a full reload.
+const reportCommentsListEl = document.getElementById('report-comments-list');
+if (reportCommentsListEl) {
+  reportCommentsListEl.addEventListener('click', async (e) => {
+    if (!e.target.matches('button[data-action="ack-comment"]')) return;
+    const li = e.target.closest('li[data-comment-id]');
+    if (!li) return;
+    const commentId = Number(li.dataset.commentId);
+    const reportId = Number(li.dataset.reportId);
+    if (!commentId || !reportId) return;
+    try {
+      const res = await fetch(`/api/reports/${reportId}/comments/${commentId}/ack`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`확인 실패: ${err.error || res.status}`, 'error');
+        return;
+      }
+      // Optimistic local update — flip acknowledged in state.allReports[].comments[].
+      const r = (state.allReports || []).find((x) => x.id === reportId);
+      if (r && Array.isArray(r.comments)) {
+        const idx = r.comments.findIndex((c) => Number(c.id) === commentId);
+        if (idx >= 0) r.comments[idx] = { ...r.comments[idx], acknowledged: 1 };
+        renderOwnReportComments(r.comments, reportId);
+        if (state.scope === 'all-reports') renderAllReportsView();
+      }
+    } catch (e) {
+      showToast(`확인 오류: ${e.message}`, 'error');
+    }
+  });
+}
+
 const teamCommentsListEl = document.getElementById('team-comments-list');
 if (teamCommentsListEl) {
   teamCommentsListEl.addEventListener('click', async (e) => {

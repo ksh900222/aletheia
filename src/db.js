@@ -177,5 +177,18 @@ try {
   console.error('[db] schedules status migration failed:', e.message);
 }
 
+// Migration: report_comments.acknowledged — used by the report owner to
+// mark a received comment as read. Defaults to 0 (unread). Existing rows
+// stay 0 so they appear as unread until the user acknowledges them.
+try {
+  const cols = db.prepare(`PRAGMA table_info(report_comments)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'acknowledged')) {
+    console.log('[db] migrating report_comments: adding acknowledged column');
+    db.exec(`ALTER TABLE report_comments ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0`);
+  }
+} catch (e) {
+  console.error('[db] report_comments acknowledged migration failed:', e.message);
+}
+
 module.exports = db;
 module.exports.DB_PATH = DB_PATH;
