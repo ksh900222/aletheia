@@ -1938,20 +1938,71 @@ body.readonly .modal select {
 .task-status-badge[data-status="rejected"] { background: var(--danger-soft);  color: var(--danger); }
 .task-status-badge:empty { display: none; }
 
-/* Detail modal — same pattern as report-modal: left content, right comments. */
+/* Detail modal — left content, middle comments, right schedule pane (when
+   accepted). Modal widens automatically when the schedule pane is shown. */
 .modal-card.task-detail-card { width: 1064px; max-width: 96vw; max-height: 86vh; }
+.modal-card.task-detail-card.with-schedule { width: 1500px; max-width: 98vw; }
 .task-detail-grid {
   display: grid;
-  grid-template-columns: 560px 1fr;
+  grid-template-columns: 1.1fr 1fr;
   gap: 22px;
 }
+.task-detail-grid.with-schedule {
+  grid-template-columns: 1.1fr 1fr 1fr;
+}
 .task-detail-left { min-width: 0; }
-.task-detail-right {
+.task-detail-middle {
   border-left: 1px solid var(--border);
   padding-left: 18px;
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.task-detail-schedule {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+}
+.task-detail-schedule.hidden { display: none; }
+.task-sched-label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.task-sched-label input,
+.task-sched-label select,
+.task-sched-label textarea {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+  margin-top: 2px;
+  box-sizing: border-box;
+}
+.task-sched-cat-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.task-sched-cat-row select { flex: 1; min-width: 0; }
+.task-sched-cat-row .btn { white-space: nowrap; padding: 4px 10px; font-size: 11px; }
+.task-sched-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.task-sched-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
 }
 .task-detail-meta {
   display: grid;

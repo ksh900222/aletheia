@@ -53,12 +53,25 @@ const insertCommentStmt = db.prepare(
    VALUES (?, ?, ?, ?)`
 );
 
+const getLinkedScheduleStmt = db.prepare(
+  `SELECT s.id, s.category_id, c.name AS category_name, c.color AS category_color,
+          s.title, s.description, s.planned_start, s.planned_end, s.status
+     FROM schedules s
+     LEFT JOIN categories c ON c.id = s.category_id
+    WHERE s.id = ?`
+);
+
 function decorate(req) {
   if (!req) return req;
+  let schedule = null;
+  if (req.schedule_id) {
+    schedule = getLinkedScheduleStmt.get(req.schedule_id) || null;
+  }
   return {
     ...req,
     attachments: getAttsForReqStmt.all(req.id),
     comments: getCommentsForReqStmt.all(req.id),
+    schedule,
   };
 }
 
@@ -362,6 +375,64 @@ router.post('/sync-outbound', async (req, res) => {
   }));
 
   res.json({ ok: true, ...summary });
+});
+
+// POST /api/tasks/:id/save-schedule — when an inbound request is accepted,
+// the recipient turns it into a real schedule on their own planner. If a
+// schedule was already linked, this updates it; otherwise it inserts a new
+// schedule and stores its id on the task_requests row.
+const insertScheduleStmt = db.prepare(
+  `INSERT INTO schedules (category_id, title, description, planned_start, planned_end, status)
+   VALUES (?, ?, ?, ?, ?, ?)`
+);
+const updateScheduleStmt = db.prepare(
+  `UPDATE schedules SET category_id = ?, title = ?, description = ?,
+                        planned_start = ?, planned_end = ?, status = ?,
+                        updated_at = datetime('now')
+    WHERE id = ?`
+);
+const linkScheduleToTaskStmt = db.prepare(
+  `UPDATE task_requests SET schedule_id = ? WHERE id = ?`
+);
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+router.post('/:id/save-schedule', express.json(), (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid_id' });
+  const row = getReqByIdStmt.get(id);
+  if (!row) return res.status(404).json({ error: 'task_not_found' });
+  if (row.direction !== 'inbound') {
+    return res.status(400).json({ error: 'not_inbound' });
+  }
+  const b = req.body || {};
+  const categoryId  = Number(b.category_id);
+  const title       = String(b.title || '').trim();
+  const description = String(b.description || '').trim();
+  const start       = String(b.planned_start || '').trim();
+  const end         = String(b.planned_end || '').trim();
+  const status      = String(b.status || 'not_started').trim() || 'not_started';
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    return res.status(400).json({ error: 'invalid_category_id' });
+  }
+  if (!title) return res.status(400).json({ error: 'empty_title' });
+  if (!ISO_DATE_RE.test(start)) return res.status(400).json({ error: 'invalid_start' });
+  if (!ISO_DATE_RE.test(end))   return res.status(400).json({ error: 'invalid_end' });
+  if (start > end) return res.status(400).json({ error: 'start_after_end' });
+
+  const catExists = db.prepare(`SELECT 1 FROM categories WHERE id = ?`).get(categoryId);
+  if (!catExists) return res.status(400).json({ error: 'category_not_found' });
+
+  let schedId = row.schedule_id;
+  db.transaction(() => {
+    if (schedId) {
+      updateScheduleStmt.run(categoryId, title, description, start, end, status, schedId);
+    } else {
+      const info = insertScheduleStmt.run(categoryId, title, description, start, end, status);
+      schedId = info.lastInsertRowid;
+      linkScheduleToTaskStmt.run(schedId, id);
+    }
+  })();
+  res.json({ ok: true, schedule_id: schedId });
 });
 
 async function forwardTaskRequests(targets, payload) {

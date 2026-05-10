@@ -2065,6 +2065,9 @@ els.categoryForm.addEventListener('submit', async (e) => {
     color: fd.get('color'),
   };
   const editId = els.categoryForm.dataset.editId;
+  // When the modal was opened from the task-detail schedule pane we don't want
+  // to navigate away to the new category — just refresh the dropdown there.
+  const fromTaskSched = els.categoryForm.dataset.fromTaskSched === '1';
   try {
     let saved;
     if (editId) {
@@ -2073,6 +2076,16 @@ els.categoryForm.addEventListener('submit', async (e) => {
       saved = await api('POST', '/api/categories', payload);
     }
     closeCategoryModal();
+    if (fromTaskSched) {
+      els.categoryForm.dataset.fromTaskSched = '';
+      // Refresh main category list state silently and the schedule-pane select.
+      await loadCategories();
+      await loadCategoriesIntoSchedSelect();
+      if (taskDetailEls.schedCategory && saved && saved.id) {
+        taskDetailEls.schedCategory.value = String(saved.id);
+      }
+      return;
+    }
     await refreshAll();
     selectCategory(saved.id);
   } catch (err) {
@@ -5413,6 +5426,8 @@ const taskInboundEls = {
 };
 const taskDetailEls = {
   modal:         document.getElementById('task-detail-modal'),
+  card:          () => document.querySelector('#task-detail-modal .task-detail-card'),
+  grid:          () => document.querySelector('#task-detail-modal .task-detail-grid'),
   status:        document.getElementById('task-detail-status'),
   sender:        document.getElementById('task-detail-sender'),
   deadline:      document.getElementById('task-detail-deadline'),
@@ -5425,6 +5440,16 @@ const taskDetailEls = {
   proposedHour:  document.getElementById('task-detail-deadline-hour'),
   proposedMin:   document.getElementById('task-detail-deadline-minute'),
   proposedClear: document.getElementById('task-detail-deadline-clear'),
+  // Schedule pane (shown when task is accepted)
+  schedPane:     document.getElementById('task-detail-schedule-pane'),
+  schedCategory: document.getElementById('task-sched-category'),
+  schedCatCreate: document.getElementById('task-sched-cat-create'),
+  schedTitle:    document.getElementById('task-sched-title'),
+  schedDesc:     document.getElementById('task-sched-desc'),
+  schedStart:    document.getElementById('task-sched-start'),
+  schedEnd:      document.getElementById('task-sched-end'),
+  schedStatus:   document.getElementById('task-sched-status'),
+  schedSave:     document.getElementById('task-sched-save'),
 };
 
 // Populate hour/minute selects on the inbound detail modal once.
@@ -5557,7 +5582,79 @@ async function openTaskDetail(reqId) {
     btn.disabled = !teamOn;
   });
 
+  // Schedule pane — visible only when this task is already 'accepted' so the
+  // recipient can register/edit a personal schedule for it. Modal widens.
+  await applyScheduleScope(r);
+
   taskDetailEls.modal.classList.remove('hidden');
+}
+
+// Show/hide the schedule pane based on row status. When showing, populate
+// the form (with the linked schedule if it already exists) and pre-fill
+// end-date with the task's deadline.
+async function applyScheduleScope(r) {
+  const card = taskDetailEls.card();
+  const grid = taskDetailEls.grid();
+  const pane = taskDetailEls.schedPane;
+  if (!card || !grid || !pane) return;
+  const isAccepted = r && r.status === 'accepted';
+  if (!isAccepted) {
+    pane.classList.add('hidden');
+    grid.classList.remove('with-schedule');
+    card.classList.remove('with-schedule');
+    return;
+  }
+  pane.classList.remove('hidden');
+  grid.classList.add('with-schedule');
+  card.classList.add('with-schedule');
+  await loadCategoriesIntoSchedSelect();
+
+  const sched = r.schedule;
+  const today = new Date().toISOString().slice(0, 10);
+  // Deadline is stored as "YYYY-MM-DD HH:MM" — pull just the date part.
+  const deadlineDate = (r.deadline || '').slice(0, 10);
+  if (sched) {
+    if (taskDetailEls.schedCategory) taskDetailEls.schedCategory.value = String(sched.category_id || '');
+    if (taskDetailEls.schedTitle)    taskDetailEls.schedTitle.value = sched.title || '';
+    if (taskDetailEls.schedDesc)     taskDetailEls.schedDesc.value = sched.description || '';
+    if (taskDetailEls.schedStart)    taskDetailEls.schedStart.value = sched.planned_start || today;
+    if (taskDetailEls.schedEnd)      taskDetailEls.schedEnd.value = sched.planned_end || deadlineDate || today;
+    if (taskDetailEls.schedStatus)   taskDetailEls.schedStatus.value = sched.status || 'not_started';
+  } else {
+    if (taskDetailEls.schedTitle) taskDetailEls.schedTitle.value = '';
+    if (taskDetailEls.schedDesc)  taskDetailEls.schedDesc.value = r.body || '';
+    if (taskDetailEls.schedStart) taskDetailEls.schedStart.value = today;
+    if (taskDetailEls.schedEnd)   taskDetailEls.schedEnd.value = deadlineDate || today;
+    if (taskDetailEls.schedStatus) taskDetailEls.schedStatus.value = 'not_started';
+  }
+}
+
+async function loadCategoriesIntoSchedSelect() {
+  const sel = taskDetailEls.schedCategory;
+  if (!sel) return;
+  const previous = sel.value;
+  sel.innerHTML = '';
+  let cats = [];
+  try {
+    const res = await fetch('/api/categories');
+    if (res.ok) cats = await res.json();
+  } catch { /* network blip */ }
+  if (cats.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '— 카테고리가 없습니다 —';
+    sel.appendChild(opt);
+    return;
+  }
+  for (const c of cats) {
+    const opt = document.createElement('option');
+    opt.value = String(c.id);
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  }
+  if (previous && cats.some((c) => String(c.id) === previous)) {
+    sel.value = previous;
+  }
 }
 
 function closeTaskDetailModal() {
@@ -5592,6 +5689,17 @@ async function submitTaskResponse(action) {
       return;
     }
     const label = { accept: '수락', adjust: '조정', reject: '거부' }[action] || action;
+    if (action === 'accept') {
+      // Keep the modal open so the recipient can fill in the schedule pane that
+      // unfurls on the right. Refetch the row so applyScheduleScope picks up
+      // the new 'accepted' status and reveals the third column.
+      showToast(`${label}했습니다. 우측에서 스케줄을 입력하세요.`, 'info', 4000);
+      const id = taskDetailCurrent;
+      await loadAndRenderInbound();
+      refreshInboundPendingBadge();
+      await openTaskDetail(id);
+      return;
+    }
     showToast(`'${label}' 으로 응답했습니다`, 'info', 3000);
     closeTaskDetailModal();
     await loadAndRenderInbound();
@@ -5628,5 +5736,74 @@ if (taskDetailEls.proposedClear) {
     taskDetailEls.proposedDate.value = '';
     if (taskDetailEls.proposedHour) taskDetailEls.proposedHour.value = '09';
     if (taskDetailEls.proposedMin) taskDetailEls.proposedMin.value = '00';
+  });
+}
+
+// "+ 새 카테고리" — reuse the existing category modal with a marker so its
+// submit handler refreshes the schedule-pane dropdown instead of navigating.
+if (taskDetailEls.schedCatCreate) {
+  taskDetailEls.schedCatCreate.addEventListener('click', () => {
+    if (!els.categoryForm) return;
+    els.categoryForm.dataset.fromTaskSched = '1';
+    openCategoryModal(null);
+  });
+}
+
+// "스케줄 저장" — POST values to /api/tasks/:id/save-schedule. Refreshes the
+// modal so the linked schedule is reflected on subsequent reopens.
+if (taskDetailEls.schedSave) {
+  taskDetailEls.schedSave.addEventListener('click', async () => {
+    if (!taskDetailCurrent) return;
+    const categoryId = Number(taskDetailEls.schedCategory && taskDetailEls.schedCategory.value);
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+      showToast('카테고리를 선택하세요', 'error');
+      return;
+    }
+    const title = (taskDetailEls.schedTitle.value || '').trim();
+    if (!title) {
+      showToast('제목을 입력하세요', 'error');
+      return;
+    }
+    const start = (taskDetailEls.schedStart.value || '').trim();
+    const end   = (taskDetailEls.schedEnd.value || '').trim();
+    if (!start || !end) {
+      showToast('시작일과 종료일을 입력하세요', 'error');
+      return;
+    }
+    if (start > end) {
+      showToast('시작일이 종료일보다 늦을 수 없습니다', 'error');
+      return;
+    }
+    const payload = {
+      category_id: categoryId,
+      title,
+      description: (taskDetailEls.schedDesc.value || '').trim(),
+      planned_start: start,
+      planned_end: end,
+      status: taskDetailEls.schedStatus.value || 'not_started',
+    };
+    taskDetailEls.schedSave.disabled = true;
+    try {
+      const res = await fetch(`/api/tasks/${taskDetailCurrent}/save-schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(`저장 실패: ${data.error || res.status}`, 'error');
+        return;
+      }
+      showToast('스케줄을 저장했습니다', 'info', 3000);
+      // Bring the saved schedule into the local state so 간트/카테고리 뷰가 즉시
+      // 반영된다.
+      try { await refreshAll(); } catch { /* non-fatal */ }
+      // Keep the modal open and refresh so the form reflects the linked id.
+      await openTaskDetail(taskDetailCurrent);
+    } catch (e) {
+      showToast(`저장 오류: ${e.message}`, 'error');
+    } finally {
+      taskDetailEls.schedSave.disabled = false;
+    }
   });
 }

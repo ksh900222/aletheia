@@ -540,7 +540,7 @@
           <div class="task-detail-body" id="task-detail-body"></div>
           <div id="task-detail-attachments" class="task-detail-attachments"></div>
         </div>
-        <div class="task-detail-right">
+        <div class="task-detail-middle">
           <h4 class="team-comments-title">코멘트 / 응답</h4>
           <ul id="task-detail-comments-list" class="team-comments-list"></ul>
           <div class="team-comments-form">
@@ -559,6 +559,42 @@
               <button type="button" class="btn task-action-adjust" data-action="adjust">조정</button>
               <button type="button" class="btn task-action-reject" data-action="reject">거부</button>
             </div>
+          </div>
+        </div>
+        <div class="task-detail-schedule hidden" id="task-detail-schedule-pane">
+          <h4 class="team-comments-title">스케줄 입력</h4>
+          <p class="muted" style="font-size:11px; margin:0 0 8px;">수락한 업무를 본인 스케줄로 등록합니다. 나중에 다시 편집 가능.</p>
+          <label class="task-sched-label">카테고리
+            <div class="task-sched-cat-row">
+              <select id="task-sched-category"></select>
+              <button type="button" id="task-sched-cat-create" class="btn">+ 새 카테고리</button>
+            </div>
+          </label>
+          <label class="task-sched-label">제목
+            <input type="text" id="task-sched-title" maxlength="200" />
+          </label>
+          <label class="task-sched-label">설명
+            <textarea id="task-sched-desc" rows="3"></textarea>
+          </label>
+          <div class="task-sched-dates">
+            <label class="task-sched-label">시작일
+              <input type="date" id="task-sched-start" />
+            </label>
+            <label class="task-sched-label">종료일
+              <input type="date" id="task-sched-end" />
+            </label>
+          </div>
+          <label class="task-sched-label">상태
+            <select id="task-sched-status">
+              <option value="not_started">not_started</option>
+              <option value="in_progress">in_progress</option>
+              <option value="pending">pending</option>
+              <option value="blocked">blocked</option>
+              <option value="done">done</option>
+            </select>
+          </label>
+          <div class="task-sched-actions">
+            <button type="button" id="task-sched-save" class="btn btn-primary">스케줄 저장</button>
           </div>
         </div>
       </div>
