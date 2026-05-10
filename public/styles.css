@@ -1508,7 +1508,8 @@ body.readonly .modal select {
 }
 .task-request-launcher:hover { background: var(--primary-hover); }
 .task-request-launcher:active { transform: translateY(1px); }
-.task-request-launcher { position: relative; }
+/* position:fixed 자체가 absolute 자식의 containing block 이므로
+   launcher 에 추가 position 선언 불필요. choice 버튼만 relative 필요. */
 .task-choice-btn { position: relative; }
 
 /* Pending count badge — shared between the launcher and the choice modal's
