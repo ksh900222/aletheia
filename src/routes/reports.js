@@ -31,8 +31,11 @@ const getReportAttachments = db.prepare(
   `SELECT * FROM attachments WHERE report_id = ? ORDER BY id ASC`
 );
 const getReportComments = db.prepare(
-  `SELECT id, report_id, author, body, created_at
+  `SELECT id, report_id, author, body, created_at, acknowledged
      FROM report_comments WHERE report_id = ? ORDER BY id ASC`
+);
+const ackCommentStmt = db.prepare(
+  `UPDATE report_comments SET acknowledged = 1 WHERE id = ? AND report_id = ?`
 );
 const categoryExists = db.prepare(`SELECT 1 FROM categories WHERE id = ?`);
 
@@ -218,6 +221,21 @@ router.delete('/:id', (req, res) => {
   const { cleanupUploadedFiles } = require('./attachments');
   cleanupUploadedFiles(uploads.map((u) => u.path));
   res.status(204).end();
+});
+
+// Acknowledge a comment received on this report. Local-only action — marks
+// the comment as read so the "받은 코멘트 N" indicator can drop the count.
+router.post('/:reportId/comments/:commentId/ack', (req, res) => {
+  const reportId = Number(req.params.reportId);
+  const commentId = Number(req.params.commentId);
+  if (!Number.isInteger(reportId) || !Number.isInteger(commentId)) {
+    return res.status(400).json({ error: 'invalid_id' });
+  }
+  const info = ackCommentStmt.run(commentId, reportId);
+  if (info.changes === 0) {
+    return res.status(404).json({ error: 'comment_not_found' });
+  }
+  res.json({ ok: true, id: commentId });
 });
 
 module.exports = router;
