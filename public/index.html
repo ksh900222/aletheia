@@ -261,40 +261,49 @@
   <div id="report-modal" class="modal hidden">
     <div class="modal-card report-modal-card">
       <h3 id="report-modal-title">리포트 작성</h3>
-      <!-- Read-only meta box: shows the linked schedule's category, title,
-           date range, duration, status, and description so the writer has
-           context. Always present (the modal is only entered via Gantt bar
-           click in date-sticky mode, which always supplies a schedule),
-           but hidden when editing a legacy report that has no schedule
-           link (none should exist after the 2026-05-05 reports migration). -->
-      <div id="report-meta-box" class="report-meta-box hidden"></div>
-      <form id="report-form">
-        <div class="row">
-          <label>날짜<input name="report_date" type="date" required /></label>
-        </div>
-        <label>카테고리 태그
-          <div id="report-category-checks" class="checkgrid"></div>
-        </label>
-        <label>본문<textarea name="body" rows="12" placeholder="오늘 진행 사항, 이슈, 다음 할 일 등"></textarea></label>
-
-        <div id="attachments-section" class="hidden">
-          <div class="section-head sub" style="margin-top: 14px;">
-            <h3>첨부</h3>
-          </div>
-          <ul id="attachment-list" class="attachment-list"></ul>
-          <div class="attach-actions">
-            <label class="btn">
-              파일 업로드
-              <input id="attachment-file-input" type="file" hidden />
+      <div class="report-modal-grid">
+        <div class="report-modal-left">
+          <!-- Read-only meta box: shows the linked schedule's category, title,
+               date range, duration, status, and description so the writer has
+               context. Always present (the modal is only entered via Gantt bar
+               click in date-sticky mode, which always supplies a schedule),
+               but hidden when editing a legacy report that has no schedule
+               link (none should exist after the 2026-05-05 reports migration). -->
+          <div id="report-meta-box" class="report-meta-box hidden"></div>
+          <form id="report-form">
+            <div class="row">
+              <label>날짜<input name="report_date" type="date" required /></label>
+            </div>
+            <label>카테고리 태그
+              <div id="report-category-checks" class="checkgrid"></div>
             </label>
-          </div>
-        </div>
+            <label>본문<textarea name="body" rows="12" placeholder="오늘 진행 사항, 이슈, 다음 할 일 등"></textarea></label>
 
-        <div class="modal-actions">
-          <button type="button" class="btn" data-close>닫기</button>
-          <button type="submit" class="btn btn-primary">저장</button>
+            <div id="attachments-section" class="hidden">
+              <div class="section-head sub" style="margin-top: 14px;">
+                <h3>첨부</h3>
+              </div>
+              <ul id="attachment-list" class="attachment-list"></ul>
+              <div class="attach-actions">
+                <label class="btn">
+                  파일 업로드
+                  <input id="attachment-file-input" type="file" hidden />
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-actions">
+              <button type="button" class="btn" data-close>닫기</button>
+              <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+          </form>
         </div>
-      </form>
+        <div class="report-modal-right">
+          <h4 class="team-comments-title">코멘트 <span id="report-comments-count" class="muted"></span></h4>
+          <ul id="report-comments-list" class="team-comments-list"></ul>
+          <p class="muted" style="font-size:11px; margin:0;">팀원이 남긴 코멘트가 여기 표시됩니다.</p>
+        </div>
+      </div>
     </div>
   </div>
 

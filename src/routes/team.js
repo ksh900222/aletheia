@@ -115,6 +115,21 @@ router.get('/events', (req, res) => {
   res.json({ events: events.since(req.query.since), latestSeq: events.latestSeq() });
 });
 
+// Server-Sent Events stream — pushes new events to the browser as they
+// happen instead of relying on the slower /events poll. The poll endpoint
+// stays as a fallback for clients that can't open an EventSource.
+router.get('/events-stream', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write(': connected\n\n');
+  events.subscribe(res);
+});
+
 // Local UI endpoints (no token; intended for own frontend)
 router.get('/peers', (req, res) => {
   res.json(peerWatcher.getStatus());

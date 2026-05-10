@@ -2774,6 +2774,9 @@ function openReportModal(report) {
     renderAttachmentList([]); // pending list (initially empty)
     hideReportMetaBox();
   }
+  // Comments panel (own reports — read-only). Re-rendered automatically
+  // when a comment_received event arrives while modal is open.
+  renderOwnReportComments(report ? (report.comments || []) : []);
   // Attachments section is always visible — file uploads / local paths are
   // buffered client-side until the report is saved (POST flushes them).
   els.attachmentsSection.classList.remove('hidden');
@@ -3488,13 +3491,14 @@ function openTeamReportViewer(r) {
   m.classList.remove('hidden');
 }
 
-function renderTeamCommentsList(comments) {
-  const list = document.getElementById('team-comments-list');
-  const count = document.getElementById('team-comments-count');
+function renderCommentsInto(listId, countId, comments) {
+  const list = document.getElementById(listId);
+  const count = document.getElementById(countId);
   if (!list) return;
+  const arr = comments || [];
   list.innerHTML = '';
-  count.textContent = comments.length > 0 ? `(${comments.length})` : '';
-  if (comments.length === 0) {
+  if (count) count.textContent = arr.length > 0 ? `(${arr.length})` : '';
+  if (arr.length === 0) {
     const li = document.createElement('li');
     li.className = 'empty';
     li.textContent = '아직 코멘트가 없습니다';
@@ -3502,7 +3506,7 @@ function renderTeamCommentsList(comments) {
     return;
   }
   // Render in chronological order (oldest first).
-  const ordered = comments.slice().sort((a, b) => {
+  const ordered = arr.slice().sort((a, b) => {
     const ka = a.created_at || '';
     const kb = b.created_at || '';
     return ka < kb ? -1 : ka > kb ? 1 : 0;
@@ -3525,6 +3529,14 @@ function renderTeamCommentsList(comments) {
     li.appendChild(body);
     list.appendChild(li);
   }
+}
+
+function renderTeamCommentsList(comments) {
+  renderCommentsInto('team-comments-list', 'team-comments-count', comments);
+}
+
+function renderOwnReportComments(comments) {
+  renderCommentsInto('report-comments-list', 'report-comments-count', comments);
 }
 
 // SQLite stores datetime('now') in UTC as "YYYY-MM-DD HH:MM:SS". Convert to
@@ -3572,16 +3584,39 @@ async function submitTeamComment() {
       showToast(`코멘트 전송 실패: ${detail}`, 'error');
       return;
     }
+    const data = await res.json().catch(() => ({}));
     input.value = '';
     showToast('코멘트가 전송되었습니다');
-    // Refresh merged data to pull A's new comment back into our view.
-    // Forces a /api/team/sync on our side then /merged refetch.
-    try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
-    await loadTeamMerged();
+
+    // Optimistic update — append the comment to local merged cache and
+    // re-render immediately. A's server already accepted it; the next
+    // background sync will reconcile against canonical data. The author
+    // string came back from A (resolved via IP), and we approximate the
+    // timestamp client-side. formatCommentTimestamp() handles both ISO
+    // and SQLite formats.
+    const optimistic = {
+      id: data.id || `local-${Date.now()}`,
+      report_id: reportId,
+      author: data.author || (state.team.self && state.team.self.name) || '?',
+      body,
+      created_at: new Date().toISOString(),
+      owner,
+    };
     const r = state.team.merged.reports.find(
       (x) => x.id === reportId && x.owner === owner
     );
-    if (r) renderTeamCommentsList(r.comments || []);
+    if (r) {
+      r.comments = [...(r.comments || []), optimistic];
+      renderTeamCommentsList(r.comments);
+    }
+
+    // Background sync to canonicalize without blocking the UI. If the user
+    // closes and reopens the modal a few seconds later, they'll see the
+    // server-side authoritative version (same content, just real id/ts).
+    (async () => {
+      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+      try { await loadTeamMerged(); } catch {}
+    })();
   } catch (e) {
     showToast(`코멘트 오류: ${e.message}`, 'error');
   } finally {
@@ -3971,8 +4006,25 @@ function handleTeamEvent(ev) {
   } else if (ev.kind === 'comment_received') {
     const author = ev.detail.author || '?';
     const preview = ev.detail.bodyPreview || '';
+    const reportId = ev.detail.report_id;
     showToast(`${author}이(가) 리포트에 코멘트를 남겼습니다: ${preview}`, 'info', 5000);
+    // If the own report modal is open and showing this very report, refresh
+    // its comment panel inline so the user sees the new entry without
+    // closing/reopening.
+    if (state.editingReportId === Number(reportId) &&
+        els.reportModal && !els.reportModal.classList.contains('hidden')) {
+      refreshOwnReportComments(reportId).catch(() => {});
+    }
   }
+}
+
+async function refreshOwnReportComments(reportId) {
+  try {
+    const r = await api('GET', `/api/reports/${reportId}`);
+    if (r && Array.isArray(r.comments)) {
+      renderOwnReportComments(r.comments);
+    }
+  } catch { /* ignore — toast already informed user */ }
 }
 
 function refreshTeamManageListIfOpen() {
@@ -3983,8 +4035,25 @@ function refreshTeamManageListIfOpen() {
   }
 }
 
-setInterval(pollTeamEvents, 8000);
-pollTeamEvents();
+// Real-time team events via Server-Sent Events. Falls back to polling if
+// EventSource init fails (very rare on modern browsers — kept as defense).
+let teamEventSource = null;
+function startTeamEventStream() {
+  if (teamEventSource) return;
+  try {
+    teamEventSource = new EventSource('/api/team/events-stream');
+    teamEventSource.addEventListener('message', (e) => {
+      try { handleTeamEvent(JSON.parse(e.data)); }
+      catch { /* malformed event payload — ignore */ }
+    });
+    // EventSource auto-reconnects on transient errors, so no error handler.
+  } catch (e) {
+    console.warn('[team] SSE 연결 실패 — 폴링 폴백:', e && e.message);
+    setInterval(pollTeamEvents, 5000);
+    pollTeamEvents();
+  }
+}
+startTeamEventStream();
 
 teamEls.toggleBtn.addEventListener('click', toggleTeamMode);
 teamEls.statusBtn.addEventListener('click', openTeamStatusModal);

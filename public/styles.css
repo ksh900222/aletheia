@@ -351,7 +351,23 @@ html, body {
 .shifted-line::before  { content: '↓ '; color: var(--info); }
 .conflict-line::before { content: '⚠ '; color: var(--danger); }
 
-.report-modal-card { width: 560px; }
+/* Higher specificity so the .modal-card base rule (defined later) doesn't
+   override these widths via cascade order. Left column = original modal
+   form width (560px); right column = comments panel (~430px). */
+.modal-card.report-modal-card { width: 1064px; max-width: 96vw; }
+.report-modal-grid {
+  display: grid;
+  grid-template-columns: 560px 1fr;
+  gap: 22px;
+}
+.report-modal-left { min-width: 0; }
+.report-modal-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 
 .report-meta-box {
   background: var(--panel-2);
@@ -1299,9 +1315,10 @@ body.readonly .modal select {
 .team-manage-file-label input[type="file"] { display: none; }
 
 /* Team report read-only viewer. */
-.team-report-viewer-card {
-  min-width: 720px;
-  max-width: 1040px;
+.modal-card.team-report-viewer-card {
+  min-width: 900px;
+  width: 1200px;
+  max-width: 96vw;
   max-height: 86vh;
   display: flex;
   flex-direction: column;
