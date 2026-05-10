@@ -41,6 +41,16 @@ const insertTaskAttStmt = db.prepare(
   `INSERT INTO task_request_attachments (task_request_id, kind, path, display_name, size_bytes)
    VALUES (?, ?, ?, ?, ?)`
 );
+const findOutboundByGroupAndRecipientStmt = db.prepare(
+  `SELECT * FROM task_requests
+    WHERE direction = 'outbound' AND group_id = ? AND recipient = ?`
+);
+const updateTaskStatusStmt = db.prepare(
+  `UPDATE task_requests SET status = ? WHERE id = ?`
+);
+const insertTaskCommentStmt = db.prepare(
+  `INSERT INTO task_request_comments (task_request_id, author, body) VALUES (?, ?, ?)`
+);
 
 // Authorize a cross-peer write and identify the originating team member.
 //
@@ -596,6 +606,43 @@ router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
   });
 
   res.json({ ok: true, id: reqId });
+});
+
+// Cross-peer receive of recipient's response (수락/조정/거부 + optional
+// comment). Updates the matching outbound row's status and replicates the
+// comment so sender's outbound view shows the negotiation.
+router.post('/task-response-in', tokenAuth, express.json(), (req, res) => {
+  const { group_id, status, comment } = req.body || {};
+  if (typeof group_id !== 'string' || !group_id) {
+    return res.status(400).json({ error: 'invalid_group_id' });
+  }
+  const VALID = new Set(['pending', 'accepted', 'adjusted', 'rejected']);
+  if (!VALID.has(String(status))) {
+    return res.status(400).json({ error: 'invalid_status' });
+  }
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
+
+  // Find sender's outbound row that matches (group_id, recipient = origin).
+  const row = findOutboundByGroupAndRecipientStmt.get(group_id, who.name);
+  if (!row) return res.status(404).json({ error: 'outbound_not_found' });
+
+  db.transaction(() => {
+    updateTaskStatusStmt.run(status, row.id);
+    if (typeof comment === 'string' && comment.trim()) {
+      insertTaskCommentStmt.run(row.id, who.name, comment.trim());
+    }
+  })();
+
+  events.record('task_request_responded', {
+    responder: who.name,
+    groupId: group_id,
+    status,
+    bodyPreview: typeof comment === 'string' ? comment.trim().slice(0, 80) : '',
+    requestId: row.id,
+  });
+
+  res.json({ ok: true, id: row.id });
 });
 
 router.post('/peer-announce', async (req, res) => {

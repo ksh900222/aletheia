@@ -137,6 +137,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_task_request_attachments_request ON task_request_attachments(task_request_id);
 
+  -- Comments on task requests (negotiation thread). On the recipient side
+  -- they're left when responding "조정/거부 with explanation"; the same
+  -- comment is replicated to the sender's matching outbound row via the
+  -- /api/team/task-response-in cross-peer endpoint so both sides see it.
+  CREATE TABLE IF NOT EXISTS task_request_comments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_request_id INTEGER NOT NULL,
+    author          TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_request_id) REFERENCES task_requests(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_request_comments_request ON task_request_comments(task_request_id);
+
   CREATE TABLE IF NOT EXISTS schema_migrations (
     name        TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now'))

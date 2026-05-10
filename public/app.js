@@ -4144,6 +4144,21 @@ function handleTeamEvent(ev) {
     const preview = ev.detail.bodyPreview || '';
     const dl = ev.detail.deadline ? ` (기한: ${ev.detail.deadline})` : '';
     showToast(`${sender}이(가) 업무를 요청했습니다${dl}: ${preview}`, 'info', 6000);
+    // If the inbound list modal is open, refresh it inline.
+    if (taskInboundEls && taskInboundEls.modal &&
+        !taskInboundEls.modal.classList.contains('hidden')) {
+      loadAndRenderInbound().catch(() => {});
+    }
+  } else if (ev.kind === 'task_request_responded') {
+    const responder = ev.detail.responder || '?';
+    const status = ev.detail.status || '';
+    const label = TASK_STATUS_LABEL ? (TASK_STATUS_LABEL[status] || status) : status;
+    const preview = ev.detail.bodyPreview ? ` — ${ev.detail.bodyPreview}` : '';
+    showToast(`${responder}: ${label}${preview}`, 'info', 5000);
+    // If outbound list modal is open, refresh to update border colors.
+    if (taskEls.outboundModal && !taskEls.outboundModal.classList.contains('hidden')) {
+      loadAndRenderOutbound().catch(() => {});
+    }
   }
 }
 
@@ -4622,20 +4637,45 @@ const TASK_REQUEST_DEFAULT_BODY = '업무를 최대한 명확하게 작성 바�
 const taskEls = {
   launcher:        document.getElementById('task-request-launcher'),
   choiceModal:     document.getElementById('task-choice-modal'),
+  composeChoice:   document.getElementById('task-choice-compose'),
   outboundChoice:  document.getElementById('task-choice-outbound'),
   inboundChoice:   document.getElementById('task-choice-inbound'),
   requestModal:    document.getElementById('task-request-modal'),
+  outboundModal:   document.getElementById('task-outbound-modal'),
+  outboundList:    document.getElementById('task-outbound-list'),
+  outboundCount:   document.getElementById('task-outbound-count'),
+  outboundRefresh: document.getElementById('task-outbound-refresh'),
   recipientsBox:   document.getElementById('task-request-recipients'),
   recipientCount:  document.getElementById('task-request-recipient-count'),
   selectAll:       document.getElementById('task-request-select-all'),
   body:            document.getElementById('task-request-body'),
   deadlineDate:    document.getElementById('task-request-deadline-date'),
-  deadlineTime:    document.getElementById('task-request-deadline-time'),
+  deadlineHour:    document.getElementById('task-request-deadline-hour'),
+  deadlineMinute:  document.getElementById('task-request-deadline-minute'),
   deadlineClear:   document.getElementById('task-request-deadline-clear'),
   files:           document.getElementById('task-request-files'),
   fileList:        document.getElementById('task-request-file-list'),
   submitBtn:       document.getElementById('task-request-submit'),
 };
+
+// Populate hour (00..23) and minute (5-min steps) selects once.
+(function fillDeadlineSelects() {
+  const pad = (n) => String(n).padStart(2, '0');
+  if (taskEls.deadlineHour && taskEls.deadlineHour.options.length === 0) {
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      opt.value = pad(h); opt.textContent = pad(h);
+      taskEls.deadlineHour.appendChild(opt);
+    }
+  }
+  if (taskEls.deadlineMinute && taskEls.deadlineMinute.options.length === 0) {
+    for (let m = 0; m < 60; m += 5) {
+      const opt = document.createElement('option');
+      opt.value = pad(m); opt.textContent = pad(m);
+      taskEls.deadlineMinute.appendChild(opt);
+    }
+  }
+})();
 
 let taskPendingFiles = [];
 
@@ -4651,7 +4691,8 @@ function openTaskRequestModal() {
   populateTaskRecipients();
   taskEls.body.value = TASK_REQUEST_DEFAULT_BODY;
   taskEls.deadlineDate.value = '';
-  taskEls.deadlineTime.value = '';
+  if (taskEls.deadlineHour) taskEls.deadlineHour.value = '09';
+  if (taskEls.deadlineMinute) taskEls.deadlineMinute.value = '00';
   taskPendingFiles = [];
   renderTaskFileList();
   taskEls.requestModal.classList.remove('hidden');
@@ -4746,16 +4787,130 @@ if (taskEls.choiceModal) {
     }
   });
 }
-if (taskEls.outboundChoice) {
-  taskEls.outboundChoice.addEventListener('click', () => {
+if (taskEls.composeChoice) {
+  taskEls.composeChoice.addEventListener('click', () => {
     closeTaskChoiceModal();
     openTaskRequestModal();
   });
 }
-if (taskEls.inboundChoice) {
-  taskEls.inboundChoice.addEventListener('click', () => {
-    showToast('요청받은 업무는 추후 진행 예정입니다', 'info', 3000);
+if (taskEls.outboundChoice) {
+  taskEls.outboundChoice.addEventListener('click', async () => {
+    closeTaskChoiceModal();
+    await openTaskOutboundModal();
   });
+}
+if (taskEls.inboundChoice) {
+  taskEls.inboundChoice.addEventListener('click', async () => {
+    closeTaskChoiceModal();
+    await openTaskInboundModal();
+  });
+}
+if (taskEls.outboundModal) {
+  taskEls.outboundModal.addEventListener('click', (e) => {
+    if (e.target === taskEls.outboundModal || e.target.matches('[data-close]')) {
+      taskEls.outboundModal.classList.add('hidden');
+    }
+  });
+}
+if (taskEls.outboundRefresh) {
+  taskEls.outboundRefresh.addEventListener('click', loadAndRenderOutbound);
+}
+
+async function openTaskOutboundModal() {
+  if (!taskEls.outboundModal) return;
+  taskEls.outboundModal.classList.remove('hidden');
+  await loadAndRenderOutbound();
+}
+
+// Group raw outbound rows by group_id (1 logical request = N rows, one per
+// recipient). Each group becomes a card that lists all recipients and the
+// shared body / deadline / attachments.
+async function loadAndRenderOutbound() {
+  if (!taskEls.outboundList) return;
+  taskEls.outboundList.innerHTML = '<div class="empty">불러오는 중...</div>';
+  let rows = [];
+  try {
+    const res = await fetch('/api/tasks/outbound');
+    if (res.ok) rows = await res.json();
+  } catch (e) {
+    taskEls.outboundList.innerHTML = `<div class="empty">불러오기 실패: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  // Group by group_id (fallback: row id) — one request to N recipients
+  // creates N rows sharing a group_id. Each recipient may have their own
+  // status, so we track them per-recipient inside the group.
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.group_id || `solo-${r.id}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        groupId: key,
+        body: r.body,
+        deadline: r.deadline,
+        created_at: r.created_at,
+        recipients: [],
+        attachments: r.attachments || [],
+        rowIds: [],
+        recipientStatus: {}, // recipient → status
+      });
+    }
+    const g = groups.get(key);
+    g.recipients.push(r.recipient);
+    g.rowIds.push(r.id);
+    g.recipientStatus[r.recipient] = r.status || 'pending';
+  }
+  const ordered = Array.from(groups.values()).sort((a, b) =>
+    a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
+  );
+  if (taskEls.outboundCount) {
+    taskEls.outboundCount.textContent = ordered.length > 0 ? `(${ordered.length}건)` : '';
+  }
+  if (ordered.length === 0) {
+    taskEls.outboundList.innerHTML = '<div class="empty">아직 보낸 업무 요청이 없습니다</div>';
+    return;
+  }
+  taskEls.outboundList.innerHTML = '';
+  for (const g of ordered) {
+    const item = document.createElement('div');
+    // Aggregate group status for the right-edge color: rejected > adjusted >
+    // accepted > pending (worst case wins so requester sees red if any
+    // recipient pushed back).
+    const statuses = new Set(Object.values(g.recipientStatus));
+    let aggregate = 'pending';
+    if (statuses.has('rejected')) aggregate = 'rejected';
+    else if (statuses.has('adjusted')) aggregate = 'adjusted';
+    else if (statuses.has('accepted') && statuses.size === 1) aggregate = 'accepted';
+    else if (statuses.has('accepted')) aggregate = 'pending'; // partial accept
+    item.className = `task-outbound-item status-${aggregate}`;
+    const recipientsHtml = g.recipients
+      .map((r) => {
+        const s = g.recipientStatus[r] || 'pending';
+        const label = { pending: '', accepted: '✓', adjusted: '↺', rejected: '✕' }[s] || '';
+        const cls = `task-outbound-recipient-pill task-recipient-${s}`;
+        return `<span class="${cls}" title="상태: ${s}">${escapeHtml(r)}${label ? ' ' + label : ''}</span>`;
+      })
+      .join('');
+    const attachmentsHtml = (g.attachments || [])
+      .map((a) => {
+        if (a.kind === 'upload') {
+          return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+        }
+        return `<span class="att-chip" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</span>`;
+      }).join('');
+    const dlHtml = g.deadline
+      ? `<span class="task-outbound-item-deadline">기한 ${escapeHtml(g.deadline)}</span>`
+      : '';
+    item.innerHTML = `
+      <div class="task-outbound-item-head">
+        <span class="task-outbound-item-time">${escapeHtml(formatCommentTimestamp(g.created_at))} 작성</span>
+        ${dlHtml}
+      </div>
+      <div class="task-outbound-item-recipients">${recipientsHtml}</div>
+      <div class="task-outbound-item-body">${escapeHtml(g.body || '')}</div>
+      ${attachmentsHtml ? `<div class="task-outbound-item-attachments">${attachmentsHtml}</div>` : ''}
+    `;
+    taskEls.outboundList.appendChild(item);
+  }
 }
 if (taskEls.requestModal) {
   taskEls.requestModal.addEventListener('click', (e) => {
@@ -4780,7 +4935,8 @@ if (taskEls.body) {
 if (taskEls.deadlineClear) {
   taskEls.deadlineClear.addEventListener('click', () => {
     taskEls.deadlineDate.value = '';
-    taskEls.deadlineTime.value = '';
+    if (taskEls.deadlineHour) taskEls.deadlineHour.value = '09';
+    if (taskEls.deadlineMinute) taskEls.deadlineMinute.value = '00';
   });
 }
 if (taskEls.files) {
@@ -4814,8 +4970,9 @@ async function submitTaskRequest() {
   if (!body) { showToast('본문을 입력하세요', 'error'); return; }
   let deadline = '';
   const d = (taskEls.deadlineDate.value || '').trim();
-  const t = (taskEls.deadlineTime.value || '').trim();
-  if (d) deadline = t ? `${d} ${t}` : `${d} 00:00`;
+  const hh = (taskEls.deadlineHour && taskEls.deadlineHour.value) || '00';
+  const mm = (taskEls.deadlineMinute && taskEls.deadlineMinute.value) || '00';
+  if (d) deadline = `${d} ${hh}:${mm}`;
 
   const fd = new FormData();
   fd.append('recipients', JSON.stringify(recipients));
@@ -4843,4 +5000,174 @@ async function submitTaskRequest() {
     taskEls.submitBtn.disabled = false;
     taskEls.submitBtn.textContent = '요청';
   }
+}
+
+// ───── Inbound (요청받은 업무) list + detail ─────
+
+const taskInboundEls = {
+  modal:        document.getElementById('task-inbound-modal'),
+  rows:         document.getElementById('task-inbound-rows'),
+  count:        document.getElementById('task-inbound-count'),
+  refreshBtn:   document.getElementById('task-inbound-refresh'),
+};
+const taskDetailEls = {
+  modal:         document.getElementById('task-detail-modal'),
+  status:        document.getElementById('task-detail-status'),
+  sender:        document.getElementById('task-detail-sender'),
+  deadline:      document.getElementById('task-detail-deadline'),
+  created:       document.getElementById('task-detail-created'),
+  body:          document.getElementById('task-detail-body'),
+  attachments:   document.getElementById('task-detail-attachments'),
+  commentsList:  document.getElementById('task-detail-comments-list'),
+  commentInput:  document.getElementById('task-detail-comment-input'),
+};
+
+let taskDetailCurrent = null; // currently open inbound row id
+
+const TASK_STATUS_LABEL = {
+  pending: '대기', accepted: '수락', adjusted: '조정', rejected: '거부',
+};
+
+async function openTaskInboundModal() {
+  if (!taskInboundEls.modal) return;
+  taskInboundEls.modal.classList.remove('hidden');
+  await loadAndRenderInbound();
+}
+
+async function loadAndRenderInbound() {
+  if (!taskInboundEls.rows) return;
+  taskInboundEls.rows.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">불러오는 중...</td></tr>';
+  let rows = [];
+  try {
+    const res = await fetch('/api/tasks/inbound');
+    if (res.ok) rows = await res.json();
+  } catch (e) {
+    taskInboundEls.rows.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">불러오기 실패: ${escapeHtml(e.message)}</td></tr>`;
+    return;
+  }
+  if (taskInboundEls.count) {
+    taskInboundEls.count.textContent = rows.length > 0 ? `(${rows.length}건)` : '';
+  }
+  taskInboundEls.rows.innerHTML = '';
+  if (rows.length === 0) {
+    taskInboundEls.rows.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">받은 요청이 없습니다</td></tr>';
+    return;
+  }
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = String(r.id);
+    const preview = (r.body || '').replace(/\s+/g, ' ').trim();
+    const status = r.status || 'pending';
+    tr.innerHTML = `
+      <td>${escapeHtml(r.sender)}</td>
+      <td><div class="task-inbound-body-preview">${escapeHtml(preview)}</div></td>
+      <td>${escapeHtml(r.deadline || '')}</td>
+      <td><span class="task-status-badge" data-status="${status}">${TASK_STATUS_LABEL[status] || status}</span></td>
+    `;
+    tr.addEventListener('click', () => openTaskDetail(r.id));
+    taskInboundEls.rows.appendChild(tr);
+  }
+}
+
+async function openTaskDetail(reqId) {
+  if (!taskDetailEls.modal) return;
+  let r = null;
+  try {
+    const res = await fetch(`/api/tasks/${reqId}`);
+    if (res.ok) r = await res.json();
+  } catch (e) {
+    showToast(`불러오기 실패: ${e.message}`, 'error');
+    return;
+  }
+  if (!r) return;
+  taskDetailCurrent = r.id;
+  taskDetailEls.sender.textContent = r.sender || '';
+  taskDetailEls.deadline.textContent = r.deadline || '(없음)';
+  taskDetailEls.created.textContent = formatCommentTimestamp(r.created_at);
+  taskDetailEls.body.textContent = r.body || '';
+  taskDetailEls.status.textContent = TASK_STATUS_LABEL[r.status] || r.status;
+  taskDetailEls.status.dataset.status = r.status || 'pending';
+
+  // Attachments — sender-side files reachable via cross-peer URL only if we
+  // know sender's host:port. Resolve from current peer list.
+  taskDetailEls.attachments.innerHTML = '';
+  const senderPeer = (state.team && state.team.peers || []).find((p) => p.name === r.sender);
+  for (const a of (r.attachments || [])) {
+    if (a.kind === 'upload' && senderPeer) {
+      const href = `http://${encodeURIComponent(senderPeer.host)}:${Number(senderPeer.port)}/uploads/${encodeURIComponent(a.path)}`;
+      const link = document.createElement('a');
+      link.className = 'att-chip';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.title = a.display_name;
+      link.textContent = `📎 ${a.display_name}`;
+      taskDetailEls.attachments.appendChild(link);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'att-chip-readonly';
+      span.title = a.path;
+      span.textContent = `📁 ${a.display_name} ${senderPeer ? '' : '(원격 위치 미상)'}`;
+      taskDetailEls.attachments.appendChild(span);
+    }
+  }
+
+  renderCommentsInto('task-detail-comments-list', null, r.comments || [], { editable: false });
+  if (taskDetailEls.commentInput) taskDetailEls.commentInput.value = '';
+  taskDetailEls.modal.classList.remove('hidden');
+}
+
+function closeTaskDetailModal() {
+  if (taskDetailEls.modal) taskDetailEls.modal.classList.add('hidden');
+  taskDetailCurrent = null;
+}
+
+async function submitTaskResponse(action) {
+  if (!taskDetailCurrent) return;
+  const body = (taskDetailEls.commentInput.value || '').trim();
+  if (action === 'adjust' && !body) {
+    showToast('조정 시 사유를 작성하세요', 'error');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/tasks/${taskDetailCurrent}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, body }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(`응답 실패: ${data.error || res.status}`, 'error');
+      return;
+    }
+    const label = { accept: '수락', adjust: '조정', reject: '거부' }[action] || action;
+    showToast(`'${label}' 으로 응답했습니다`, 'info', 3000);
+    closeTaskDetailModal();
+    await loadAndRenderInbound();
+  } catch (e) {
+    showToast(`응답 오류: ${e.message}`, 'error');
+  }
+}
+
+if (taskInboundEls.modal) {
+  taskInboundEls.modal.addEventListener('click', (e) => {
+    if (e.target === taskInboundEls.modal || e.target.matches('[data-close]')) {
+      taskInboundEls.modal.classList.add('hidden');
+    }
+  });
+}
+if (taskInboundEls.refreshBtn) {
+  taskInboundEls.refreshBtn.addEventListener('click', loadAndRenderInbound);
+}
+if (taskDetailEls.modal) {
+  taskDetailEls.modal.addEventListener('click', (e) => {
+    if (e.target === taskDetailEls.modal || e.target.matches('[data-close]')) {
+      closeTaskDetailModal();
+      return;
+    }
+    const actBtn = e.target.closest('button[data-action]');
+    if (actBtn && ['accept', 'adjust', 'reject'].includes(actBtn.dataset.action)) {
+      submitTaskResponse(actBtn.dataset.action);
+    }
+  });
 }
