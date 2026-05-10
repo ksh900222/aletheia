@@ -41,7 +41,7 @@ const getAttsForReqStmt = db.prepare(
      FROM task_request_attachments WHERE task_request_id = ? ORDER BY id ASC`
 );
 const getCommentsForReqStmt = db.prepare(
-  `SELECT id, task_request_id, author, body, created_at
+  `SELECT id, task_request_id, author, body, created_at, proposed_deadline
      FROM task_request_comments WHERE task_request_id = ? ORDER BY id ASC`
 );
 const getReqByIdStmt = db.prepare(`SELECT * FROM task_requests WHERE id = ?`);
@@ -49,7 +49,8 @@ const updateReqStatusStmt = db.prepare(
   `UPDATE task_requests SET status = ? WHERE id = ?`
 );
 const insertCommentStmt = db.prepare(
-  `INSERT INTO task_request_comments (task_request_id, author, body) VALUES (?, ?, ?)`
+  `INSERT INTO task_request_comments (task_request_id, author, body, proposed_deadline)
+   VALUES (?, ?, ?, ?)`
 );
 
 function decorate(req) {
@@ -108,6 +109,26 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
     size_bytes: f.size,
   }));
 
+  // Reissue support — when set, copy the prior negotiation thread per
+  // recipient so the new request continues the conversation instead of
+  // resetting it.
+  const fromGroupId = (req.body.from_group_id || '').trim() || null;
+  const findOldOutboundStmt = db.prepare(
+    `SELECT id FROM task_requests
+      WHERE direction = 'outbound' AND group_id = ? AND recipient = ?`
+  );
+  const getOldCommentsStmt = db.prepare(
+    `SELECT author, body, created_at, proposed_deadline
+       FROM task_request_comments WHERE task_request_id = ? ORDER BY id ASC`
+  );
+  const insertCommentWithTsStmt = db.prepare(
+    `INSERT INTO task_request_comments (task_request_id, author, body, created_at, proposed_deadline)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  // Per-recipient prior comments → forwarded so the recipient's new inbound
+  // row mirrors the same thread.
+  const priorByRecipient = {};
+
   // Insert outbound rows + attachment metadata for each recipient.
   const insertedIds = [];
   const tx = db.transaction(() => {
@@ -118,6 +139,21 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
       for (const m of fileMeta) {
         insertAttStmt.run(reqId, m.kind, m.path, m.display_name, m.size_bytes);
       }
+      if (fromGroupId) {
+        const old = findOldOutboundStmt.get(fromGroupId, peer.name);
+        if (old) {
+          const oldComments = getOldCommentsStmt.all(old.id);
+          console.log(`[task] reissue: 이전 group=${fromGroupId} recipient=${peer.name} → outbound id=${old.id} 의 코멘트 ${oldComments.length}개 복사`);
+          for (const c of oldComments) {
+            insertCommentWithTsStmt.run(
+              reqId, c.author, c.body, c.created_at, c.proposed_deadline || null
+            );
+          }
+          priorByRecipient[peer.name] = oldComments;
+        } else {
+          console.warn(`[task] reissue: 이전 group=${fromGroupId} recipient=${peer.name} 에 매칭되는 outbound row 없음`);
+        }
+      }
     }
   });
   tx();
@@ -127,6 +163,7 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
   forwardTaskRequests(validRecipients, {
     sender, body, deadline, groupId, attachments: fileMeta,
     selfHost: undefined, selfPort: cfg.self.port,
+    priorByRecipient,
   }).catch((e) => console.warn('[task] forward error:', e.message));
 
   res.json({
@@ -183,13 +220,23 @@ router.post('/:id/respond', express.json(), async (req, res) => {
     return res.status(400).json({ error: 'body_required_for_adjust' });
   }
   if (body.length > 10000) return res.status(400).json({ error: 'body_too_long' });
+  // Optional: recipient may suggest a new deadline along with the comment.
+  // Format mirrors task deadlines: "YYYY-MM-DD HH:MM" or null.
+  const proposedDeadline = (req.body && typeof req.body.proposed_deadline === 'string')
+    ? req.body.proposed_deadline.trim() || null
+    : null;
+  // If only the deadline was proposed without a comment, create a synthetic
+  // comment row anyway so the proposal travels with the response payload.
+  const shouldInsertComment = body || proposedDeadline;
 
   const cfg = settings.get();
   const me = cfg.self.name;
 
   db.transaction(() => {
     updateReqStatusStmt.run(newStatus, id);
-    if (body) insertCommentStmt.run(id, me, body);
+    if (shouldInsertComment) {
+      insertCommentStmt.run(id, me, body, proposedDeadline);
+    }
   })();
 
   // Forward to sender so their outbound row updates too. row.sender is the
@@ -213,6 +260,7 @@ router.post('/:id/respond', express.json(), async (req, res) => {
         group_id: row.group_id,
         status: newStatus,
         comment: body || null,
+        proposed_deadline: proposedDeadline,
       }),
       signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
     }).then(async (r) => {
@@ -250,8 +298,8 @@ router.post('/sync-outbound', async (req, res) => {
     `DELETE FROM task_request_comments WHERE task_request_id = ?`
   );
   const insertCmtStmt = db.prepare(
-    `INSERT INTO task_request_comments (task_request_id, author, body, created_at)
-     VALUES (?, ?, ?, ?)`
+    `INSERT INTO task_request_comments (task_request_id, author, body, created_at, proposed_deadline)
+     VALUES (?, ?, ?, ?, ?)`
   );
 
   await Promise.all(peers.map(async (peer) => {
@@ -289,7 +337,7 @@ router.post('/sync-outbound', async (req, res) => {
           if (incoming.length > 0) {
             deleteCmtsStmt.run(local.id);
             for (const c of incoming) {
-              insertCmtStmt.run(local.id, c.author, c.body, c.created_at);
+              insertCmtStmt.run(local.id, c.author, c.body, c.created_at, c.proposed_deadline || null);
             }
             changed = true;
           }
@@ -308,8 +356,11 @@ router.post('/sync-outbound', async (req, res) => {
 async function forwardTaskRequests(targets, payload) {
   const cfg = settings.get();
   if (!cfg.sharedToken) return;
+  const priorByRecipient = payload.priorByRecipient || {};
   await Promise.all(targets.map(async (peer) => {
     const url = `http://${peer.host}:${peer.port}/api/team/task-request-in`;
+    const priorN = (priorByRecipient[peer.name] || []).length;
+    if (priorN > 0) console.log(`[task] forward → ${peer.name} prior_comments=${priorN}건 동봉`);
     try {
       await fetch(url, {
         method: 'POST',
@@ -325,6 +376,9 @@ async function forwardTaskRequests(targets, payload) {
           attachments: payload.attachments,
           // Tell recipient where to fetch upload-kind files from.
           peer_port: payload.selfPort,
+          // Reissue carry-over: prior negotiation comments to seed the new
+          // inbound row's thread (this peer only).
+          prior_comments: priorByRecipient[peer.name] || [],
         }),
         signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
       });

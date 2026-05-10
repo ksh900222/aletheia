@@ -1535,6 +1535,19 @@ body.readonly .modal select {
 .task-choice-desc  { font-size: 11px; color: var(--muted); }
 
 .modal-card.task-request-card { width: 720px; max-width: 96vw; }
+/* "다시 요청" 모드 — 좌(폼)·우(이전 응답 패널) 2-column. */
+.modal-card.task-request-card.with-history { width: 1100px; }
+.task-request-grid { display: grid; grid-template-columns: 1fr; gap: 22px; }
+.task-request-grid.with-history { grid-template-columns: 1.4fr 1fr; }
+.task-request-left { min-width: 0; }
+.task-request-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.task-request-right.hidden { display: none; }
 .task-request-section { margin-bottom: 14px; }
 .task-request-label {
   display: block;
@@ -1685,6 +1698,119 @@ body.readonly .modal select {
   gap: 8px;
 }
 .task-outbound-item-time { font-weight: 500; }
+.task-outbound-item-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.task-reissue-btn,
+.task-detail-btn {
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 12px;
+}
+
+/* Outbound detail modal — left: request body, right: per-recipient
+   response groups (status badge + comments). z-index 한 단계 위로 — 부모인
+   #task-outbound-modal 이 DOM 상 뒤에 있어 같은 z-index 면 가려짐. */
+#task-outbound-detail-modal { z-index: 110; }
+.modal-card.task-outbound-detail-card {
+  width: 1064px;
+  max-width: 96vw;
+  max-height: 86vh;
+}
+.task-outbound-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.task-outbound-detail-left { min-width: 0; display: flex; flex-direction: column; }
+.task-outbound-detail-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.task-outbound-detail-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 18px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.task-outbound-detail-meta > div { grid-column: 1 / -1; }
+.task-outbound-detail-meta > div > .muted {
+  display: inline-block;
+  min-width: 60px;
+}
+.task-outbound-detail-body {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 50vh;
+  min-height: 120px;
+}
+.task-outbound-detail-attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.task-outbound-detail-recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+.task-outbound-detail-recipient-block {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.task-outbound-detail-recipient-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.task-outbound-detail-recipient-comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-outbound-detail-recipient-comments li {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+.task-outbound-detail-recipient-comments .empty {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  text-align: center;
+  font-size: 11.5px;
+  padding: 4px;
+}
 .task-outbound-item-deadline {
   background: color-mix(in srgb, var(--warning) 15%, transparent);
   color: var(--warning);
@@ -1859,6 +1985,46 @@ body.readonly .modal select {
   border-color: rgba(239, 107, 107, 0.45);
 }
 .task-action-reject:hover { background: var(--danger); color: #1f0a0a; }
+
+/* Recipient's "제안 기한" inline row inside the inbound detail modal. */
+.task-detail-deadline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.task-detail-deadline-row input[type="date"],
+.task-detail-deadline-row select {
+  padding: 4px 8px;
+  font-size: 12.5px;
+  height: 28px;
+  width: auto;
+  margin-top: 0;
+}
+.task-detail-deadline-row input[type="date"] { width: 150px; }
+.task-detail-deadline-row select { width: 64px; }
+.task-detail-deadline-row .btn { padding: 4px 12px; font-size: 12px; }
+
+/* Sender's "다시 요청" history pane — proposed deadline row + 수락 button */
+.task-history-proposed {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.task-history-proposed-label { color: var(--muted); font-size: 11px; }
+.task-history-proposed-value { color: var(--primary); font-weight: 600; flex: 1; }
+.task-history-proposed-apply {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 12px;
+}
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

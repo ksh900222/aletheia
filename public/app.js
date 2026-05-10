@@ -4680,6 +4680,10 @@ const taskEls = {
 })();
 
 let taskPendingFiles = [];
+// When set, the next submit is a 다시 요청 — backend should copy the prior
+// thread's comments into the newly-created outbound rows (and forward the
+// same to the recipient so their inbound row mirrors it).
+let taskReissueFromGroupId = null;
 
 function openTaskChoiceModal() {
   if (!taskEls.choiceModal) return;
@@ -4708,10 +4712,126 @@ function openTaskRequestModal() {
   if (taskEls.deadlineMinute) taskEls.deadlineMinute.value = '00';
   taskPendingFiles = [];
   renderTaskFileList();
+  // Fresh open — hide the history pane and shrink the modal back.
+  setTaskRequestHistoryMode(null);
+  taskReissueFromGroupId = null;
   taskEls.requestModal.classList.remove('hidden');
+}
+
+// Toggle the optional "이전 응답 / 코멘트" right pane. groupOrNull = the
+// group object when re-issuing (shows pane); null for fresh compose (hide).
+function setTaskRequestHistoryMode(group) {
+  const card = taskEls.requestModal && taskEls.requestModal.querySelector('.task-request-card');
+  const grid = taskEls.requestModal && taskEls.requestModal.querySelector('.task-request-grid');
+  const right = document.getElementById('task-request-history');
+  const titleEl = document.getElementById('task-request-title');
+  if (!card || !grid || !right) return;
+  if (!group) {
+    right.classList.add('hidden');
+    grid.classList.remove('with-history');
+    card.classList.remove('with-history');
+    if (titleEl) titleEl.textContent = '업무 요청 작성';
+    return;
+  }
+  // Re-issue mode — collect the comments from this group's outbound rows.
+  // Each outbound row in this group has its own comments[]; combine all
+  // (sorted by created_at). We'll fetch them via /api/tasks/:id since the
+  // group cached object does not currently include per-row comments.
+  right.classList.remove('hidden');
+  grid.classList.add('with-history');
+  card.classList.add('with-history');
+  if (titleEl) titleEl.textContent = '업무 다시 요청';
+  loadAndRenderReissueHistory(group);
+}
+
+async function loadAndRenderReissueHistory(group) {
+  const list = document.getElementById('task-request-history-list');
+  if (!list) return;
+  list.innerHTML = '<li class="empty">불러오는 중...</li>';
+  // Fetch comments for each row in the group. Rows may have come from
+  // disparate recipients; we tag each comment with the recipient name so
+  // the user can tell who wrote what.
+  const all = [];
+  await Promise.all((group.rowIds || []).map(async (rid) => {
+    try {
+      const r = await fetch(`/api/tasks/${rid}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const recipient = data.recipient || '?';
+      for (const c of (data.comments || [])) {
+        all.push({ ...c, recipient });
+      }
+    } catch { /* ignore single-row errors */ }
+  }));
+  all.sort((a, b) => {
+    const ka = a.created_at || ''; const kb = b.created_at || '';
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  // Reuse the comments list rendering (read-only), but tweak so the body
+  // also shows which recipient this came from.
+  list.innerHTML = '';
+  if (all.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = '코멘트 없음';
+    list.appendChild(li);
+    return;
+  }
+  for (const c of all) {
+    const li = document.createElement('li');
+    const head = document.createElement('div');
+    head.className = 'team-comment-head';
+    const author = document.createElement('span');
+    author.className = 'team-comment-author';
+    author.textContent = `${c.recipient} → ${c.author}`;
+    const ts = document.createElement('span');
+    ts.textContent = formatCommentTimestamp(c.created_at);
+    head.appendChild(author);
+    head.appendChild(ts);
+    const body = document.createElement('div');
+    body.className = 'team-comment-body';
+    body.textContent = c.body || '';
+    li.appendChild(head);
+    li.appendChild(body);
+    // Recipient-proposed deadline — render with a 「수락」 button that
+    // pushes the value into the left compose form's deadline fields.
+    if (c.proposed_deadline) {
+      const row = document.createElement('div');
+      row.className = 'task-history-proposed';
+      row.innerHTML =
+        '<span class="task-history-proposed-label">제안 기한</span>' +
+        `<span class="task-history-proposed-value">${escapeHtml(c.proposed_deadline)}</span>` +
+        '<button type="button" class="btn task-history-proposed-apply">수락</button>';
+      row.querySelector('button').addEventListener('click', () => {
+        applyProposedDeadlineToCompose(c.proposed_deadline);
+      });
+      li.appendChild(row);
+    }
+    list.appendChild(li);
+  }
+}
+
+// Copy a "YYYY-MM-DD HH:MM" string into the compose form's deadline date /
+// hour / minute selects. Minutes are snapped to the 5-min grid the picker
+// uses.
+function applyProposedDeadlineToCompose(s) {
+  const m = String(s || '').match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) {
+    showToast('기한 형식이 올바르지 않습니다', 'error');
+    return;
+  }
+  taskEls.deadlineDate.value = m[1];
+  if (taskEls.deadlineHour) taskEls.deadlineHour.value = String(m[2] || '09').padStart(2, '0');
+  if (taskEls.deadlineMinute && m[3] != null) {
+    const mm = Math.round(Number(m[3]) / 5) * 5;
+    const clamped = Math.min(55, Math.max(0, mm));
+    taskEls.deadlineMinute.value = String(clamped).padStart(2, '0');
+  }
+  showToast(`기한을 ${m[1]} ${(m[2]||'09').padStart(2,'0')}:${(m[3]||'00').padStart(2,'0')} 으로 적용했습니다`, 'info', 2500);
 }
 function closeTaskRequestModal() {
   if (taskEls.requestModal) taskEls.requestModal.classList.add('hidden');
+  setTaskRequestHistoryMode(null);
 }
 
 async function populateTaskRecipients() {
@@ -4851,6 +4971,9 @@ async function syncAndRenderOutbound() {
 // Group raw outbound rows by group_id (1 logical request = N rows, one per
 // recipient). Each group becomes a card that lists all recipients and the
 // shared body / deadline / attachments.
+// Cached groups from the last render — lookup table for re-issue clicks.
+let lastOutboundGroups = [];
+
 async function loadAndRenderOutbound() {
   if (!taskEls.outboundList) return;
   taskEls.outboundList.innerHTML = '<div class="empty">불러오는 중...</div>';
@@ -4864,7 +4987,7 @@ async function loadAndRenderOutbound() {
   }
   // Group by group_id (fallback: row id) — one request to N recipients
   // creates N rows sharing a group_id. Each recipient may have their own
-  // status, so we track them per-recipient inside the group.
+  // status + comments, so we track them per-recipient inside the group.
   const groups = new Map();
   for (const r of rows) {
     const key = r.group_id || `solo-${r.id}`;
@@ -4877,13 +5000,15 @@ async function loadAndRenderOutbound() {
         recipients: [],
         attachments: r.attachments || [],
         rowIds: [],
-        recipientStatus: {}, // recipient → status
+        recipientStatus: {},   // recipient → status
+        recipientComments: {}, // recipient → array of comments
       });
     }
     const g = groups.get(key);
     g.recipients.push(r.recipient);
     g.rowIds.push(r.id);
     g.recipientStatus[r.recipient] = r.status || 'pending';
+    g.recipientComments[r.recipient] = r.comments || [];
   }
   const ordered = Array.from(groups.values()).sort((a, b) =>
     a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
@@ -4891,6 +5016,7 @@ async function loadAndRenderOutbound() {
   if (taskEls.outboundCount) {
     taskEls.outboundCount.textContent = ordered.length > 0 ? `(${ordered.length}건)` : '';
   }
+  lastOutboundGroups = ordered;
   if (ordered.length === 0) {
     taskEls.outboundList.innerHTML = '<div class="empty">아직 보낸 업무 요청이 없습니다</div>';
     return;
@@ -4926,10 +5052,26 @@ async function loadAndRenderOutbound() {
     const dlHtml = g.deadline
       ? `<span class="task-outbound-item-deadline">기한 ${escapeHtml(g.deadline)}</span>`
       : '';
+    // 거부/조정이 하나라도 있으면 「다시 요청」 버튼 노출.
+    const canReissue = aggregate === 'rejected' || aggregate === 'adjusted';
+    const reissueHtml = canReissue
+      ? `<button type="button" class="btn task-reissue-btn" data-group-id="${escapeHtml(g.groupId)}" title="거부/조정된 수신자에게 다시 요청">다시 요청</button>`
+      : '';
+    // 어느 수신자라도 코멘트(수락 코멘트 포함)를 남겼다면 「응답 보기」
+    // 버튼 노출. 모달에서 수신자별로 묶여 보임.
+    const totalComments = Object.values(g.recipientComments || {})
+      .reduce((sum, arr) => sum + (arr ? arr.length : 0), 0);
+    const detailHtml = totalComments > 0
+      ? `<button type="button" class="btn task-detail-btn" data-group-id="${escapeHtml(g.groupId)}" title="수신자가 남긴 응답 코멘트 보기">응답 보기 ${totalComments}</button>`
+      : '';
     item.innerHTML = `
       <div class="task-outbound-item-head">
         <span class="task-outbound-item-time">${escapeHtml(formatCommentTimestamp(g.created_at))} 작성</span>
-        ${dlHtml}
+        <div class="task-outbound-item-head-right">
+          ${dlHtml}
+          ${detailHtml}
+          ${reissueHtml}
+        </div>
       </div>
       <div class="task-outbound-item-recipients">${recipientsHtml}</div>
       <div class="task-outbound-item-body">${escapeHtml(g.body || '')}</div>
@@ -4937,6 +5079,204 @@ async function loadAndRenderOutbound() {
     `;
     taskEls.outboundList.appendChild(item);
   }
+}
+
+// Event delegation — 「다시 요청」 / 「응답 보기」 buttons on cards.
+if (taskEls.outboundList) {
+  taskEls.outboundList.addEventListener('click', (e) => {
+    const reissueBtn = e.target.closest('.task-reissue-btn');
+    if (reissueBtn) {
+      const g = lastOutboundGroups.find((x) => x.groupId === reissueBtn.dataset.groupId);
+      if (!g) { showToast('그룹 정보를 찾을 수 없음', 'error'); return; }
+      openTaskRequestForReissue(g);
+      return;
+    }
+    const detailBtn = e.target.closest('.task-detail-btn');
+    if (detailBtn) {
+      const g = lastOutboundGroups.find((x) => x.groupId === detailBtn.dataset.groupId);
+      if (!g) { showToast('그룹 정보를 찾을 수 없음', 'error'); return; }
+      openTaskOutboundDetail(g);
+      return;
+    }
+  });
+}
+
+// Outbound detail modal — view-only display of a sent request grouped by
+// recipient: each recipient shows status + their comments (수락 with comment,
+// 조정 사유, 거부 사유 모두 포함).
+const taskOutboundDetailEls = {
+  modal:        document.getElementById('task-outbound-detail-modal'),
+  created:      document.getElementById('task-outbound-detail-created'),
+  deadline:     document.getElementById('task-outbound-detail-deadline'),
+  body:         document.getElementById('task-outbound-detail-body'),
+  attachments:  document.getElementById('task-outbound-detail-attachments'),
+  recipients:   document.getElementById('task-outbound-detail-recipients'),
+  reissueBtn:   document.getElementById('task-outbound-detail-reissue'),
+};
+
+function openTaskOutboundDetail(group) {
+  const m = taskOutboundDetailEls.modal;
+  if (!m) return;
+  taskOutboundDetailEls.created.textContent = formatCommentTimestamp(group.created_at);
+  taskOutboundDetailEls.deadline.textContent = group.deadline || '(없음)';
+  taskOutboundDetailEls.body.textContent = group.body || '';
+
+  // Attachments — same self-server links as the outbound list (sender side).
+  taskOutboundDetailEls.attachments.innerHTML = '';
+  for (const a of (group.attachments || [])) {
+    if (a.kind === 'upload') {
+      const link = document.createElement('a');
+      link.className = 'att-chip';
+      link.href = `/uploads/${encodeURIComponent(a.path)}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.title = a.display_name;
+      link.textContent = `📎 ${a.display_name}`;
+      taskOutboundDetailEls.attachments.appendChild(link);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'att-chip';
+      span.textContent = `📁 ${a.display_name}`;
+      span.title = a.path;
+      taskOutboundDetailEls.attachments.appendChild(span);
+    }
+  }
+
+  // Per-recipient block: status badge + comments.
+  taskOutboundDetailEls.recipients.innerHTML = '';
+  for (const name of group.recipients) {
+    const status = (group.recipientStatus || {})[name] || 'pending';
+    const comments = (group.recipientComments || {})[name] || [];
+    const block = document.createElement('div');
+    block.className = 'task-outbound-detail-recipient-block';
+    const head = document.createElement('div');
+    head.className = 'task-outbound-detail-recipient-head';
+    head.innerHTML = `
+      <span>${escapeHtml(name)}</span>
+      <span class="task-status-badge" data-status="${status}">${TASK_STATUS_LABEL[status] || status}</span>
+    `;
+    block.appendChild(head);
+
+    const list = document.createElement('ul');
+    list.className = 'task-outbound-detail-recipient-comments';
+    if (comments.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = '코멘트 없음';
+      list.appendChild(li);
+    } else {
+      for (const c of comments) {
+        const li = document.createElement('li');
+        const head2 = document.createElement('div');
+        head2.className = 'team-comment-head';
+        const author = document.createElement('span');
+        author.className = 'team-comment-author';
+        author.textContent = c.author || '?';
+        const ts = document.createElement('span');
+        ts.textContent = formatCommentTimestamp(c.created_at);
+        head2.appendChild(author);
+        head2.appendChild(ts);
+        const body = document.createElement('div');
+        body.className = 'team-comment-body';
+        body.textContent = c.body || '';
+        li.appendChild(head2);
+        li.appendChild(body);
+        // Read-only proposed-deadline display (no 수락 button — only the
+        // 다시 요청 modal exposes that, since only there can a deadline
+        // be applied to the new request).
+        if (c.proposed_deadline) {
+          const dl = document.createElement('div');
+          dl.className = 'task-history-proposed';
+          dl.innerHTML =
+            '<span class="task-history-proposed-label">제안 기한</span>' +
+            `<span class="task-history-proposed-value">${escapeHtml(c.proposed_deadline)}</span>`;
+          li.appendChild(dl);
+        }
+        list.appendChild(li);
+      }
+    }
+    block.appendChild(list);
+    taskOutboundDetailEls.recipients.appendChild(block);
+  }
+
+  // 「다시 요청」 inside the detail modal — show only when this group has
+  // at least one rejected/adjusted recipient (same rule as the list card).
+  const statuses = new Set(Object.values(group.recipientStatus || {}));
+  const canReissue = statuses.has('rejected') || statuses.has('adjusted');
+  if (taskOutboundDetailEls.reissueBtn) {
+    taskOutboundDetailEls.reissueBtn.classList.toggle('hidden', !canReissue);
+    taskOutboundDetailEls.reissueBtn.onclick = canReissue
+      ? () => { m.classList.add('hidden'); openTaskRequestForReissue(group); }
+      : null;
+  }
+
+  m.classList.remove('hidden');
+}
+
+if (taskOutboundDetailEls.modal) {
+  taskOutboundDetailEls.modal.addEventListener('click', (e) => {
+    if (e.target === taskOutboundDetailEls.modal || e.target.matches('[data-close]')) {
+      taskOutboundDetailEls.modal.classList.add('hidden');
+    }
+  });
+}
+
+// Re-issue a previously-sent request whose recipients rejected or asked for
+// adjustment. Closes the outbound list, opens the compose modal pre-filled
+// with the original body / deadline, and pre-checks ONLY the recipients
+// whose status was rejected/adjusted/pending (accepted ones are excluded —
+// no need to bother them again). Files aren't auto-re-attached; user can
+// re-add what's relevant.
+async function openTaskRequestForReissue(group) {
+  if (!taskEls.requestModal) return;
+  // 팀 ON 가드는 기존 openTaskChoiceModal 패턴을 재사용 — OFF 면 차단.
+  if (!(state.team && state.team.mode === 'ON')) {
+    showToast('팀 전체계획을 ON 으로 켜야 사용할 수 있습니다', 'error');
+    return;
+  }
+  // Hide the outbound modal so the compose modal isn't visually buried.
+  if (taskEls.outboundModal) taskEls.outboundModal.classList.add('hidden');
+
+  await populateTaskRecipients();
+
+  const wanted = new Set(
+    (group.recipients || []).filter((r) => {
+      const s = (group.recipientStatus || {})[r];
+      return s === 'rejected' || s === 'adjusted' || s === 'pending';
+    })
+  );
+  taskEls.recipientsBox.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+    if (wanted.has(cb.dataset.recipient)) cb.checked = true;
+  });
+  updateTaskRecipientCount();
+  updateTaskSelectAllState();
+
+  taskEls.body.value = group.body || TASK_REQUEST_DEFAULT_BODY;
+
+  taskEls.deadlineDate.value = '';
+  if (taskEls.deadlineHour) taskEls.deadlineHour.value = '09';
+  if (taskEls.deadlineMinute) taskEls.deadlineMinute.value = '00';
+  if (group.deadline) {
+    const m = String(group.deadline).match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (m) {
+      taskEls.deadlineDate.value = m[1];
+      if (m[2] && taskEls.deadlineHour) taskEls.deadlineHour.value = String(m[2]).padStart(2, '0');
+      if (m[3] && taskEls.deadlineMinute) {
+        const mm = Math.round(Number(m[3]) / 5) * 5;
+        const clamped = Math.min(55, Math.max(0, mm));
+        taskEls.deadlineMinute.value = String(clamped).padStart(2, '0');
+      }
+    }
+  }
+
+  taskPendingFiles = [];
+  renderTaskFileList();
+  // Show the history pane and load comments from each row in the group.
+  setTaskRequestHistoryMode(group);
+  taskReissueFromGroupId = group.groupId;
+  taskEls.requestModal.classList.remove('hidden');
+  updateTaskSubmitDisabled();
+  showToast('이전 요청 내용을 불러왔습니다. 수정 후 「요청」을 누르세요.', 'info', 3500);
 }
 if (taskEls.requestModal) {
   taskEls.requestModal.addEventListener('click', (e) => {
@@ -5004,6 +5344,10 @@ async function submitTaskRequest() {
   fd.append('recipients', JSON.stringify(recipients));
   fd.append('body', body);
   if (deadline) fd.append('deadline', deadline);
+  if (taskReissueFromGroupId) {
+    console.log('[task] submit: 다시 요청 from_group_id =', taskReissueFromGroupId);
+    fd.append('from_group_id', taskReissueFromGroupId);
+  }
   for (const entry of taskPendingFiles) {
     fd.append('files', entry.file, entry.displayName);
   }
@@ -5046,7 +5390,30 @@ const taskDetailEls = {
   attachments:   document.getElementById('task-detail-attachments'),
   commentsList:  document.getElementById('task-detail-comments-list'),
   commentInput:  document.getElementById('task-detail-comment-input'),
+  proposedDate:  document.getElementById('task-detail-deadline-date'),
+  proposedHour:  document.getElementById('task-detail-deadline-hour'),
+  proposedMin:   document.getElementById('task-detail-deadline-minute'),
+  proposedClear: document.getElementById('task-detail-deadline-clear'),
 };
+
+// Populate hour/minute selects on the inbound detail modal once.
+(function fillTaskDetailDeadline() {
+  const pad = (n) => String(n).padStart(2, '0');
+  if (taskDetailEls.proposedHour && taskDetailEls.proposedHour.options.length === 0) {
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement('option');
+      o.value = pad(h); o.textContent = pad(h);
+      taskDetailEls.proposedHour.appendChild(o);
+    }
+  }
+  if (taskDetailEls.proposedMin && taskDetailEls.proposedMin.options.length === 0) {
+    for (let m = 0; m < 60; m += 5) {
+      const o = document.createElement('option');
+      o.value = pad(m); o.textContent = pad(m);
+      taskDetailEls.proposedMin.appendChild(o);
+    }
+  }
+})();
 
 let taskDetailCurrent = null; // currently open inbound row id
 
@@ -5140,6 +5507,10 @@ async function openTaskDetail(reqId) {
 
   renderCommentsInto('task-detail-comments-list', null, r.comments || [], { editable: false });
   if (taskDetailEls.commentInput) taskDetailEls.commentInput.value = '';
+  // Reset proposed-deadline inputs each time the modal opens.
+  if (taskDetailEls.proposedDate)  taskDetailEls.proposedDate.value = '';
+  if (taskDetailEls.proposedHour)  taskDetailEls.proposedHour.value = '09';
+  if (taskDetailEls.proposedMin)   taskDetailEls.proposedMin.value = '00';
 
   // Response actions need to forward to the sender's peer, which only makes
   // sense when team mode is ON. Disable the input + 수락/조정/거부 buttons
@@ -5170,11 +5541,19 @@ async function submitTaskResponse(action) {
     showToast('조정 시 사유를 작성하세요', 'error');
     return;
   }
+  // Combine proposed deadline date+hour+minute → "YYYY-MM-DD HH:MM" (or null).
+  let proposedDeadline = null;
+  const d = (taskDetailEls.proposedDate && taskDetailEls.proposedDate.value || '').trim();
+  if (d) {
+    const hh = (taskDetailEls.proposedHour && taskDetailEls.proposedHour.value) || '00';
+    const mm = (taskDetailEls.proposedMin && taskDetailEls.proposedMin.value) || '00';
+    proposedDeadline = `${d} ${hh}:${mm}`;
+  }
   try {
     const res = await fetch(`/api/tasks/${taskDetailCurrent}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, body }),
+      body: JSON.stringify({ action, body, proposed_deadline: proposedDeadline }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -5210,5 +5589,12 @@ if (taskDetailEls.modal) {
     if (actBtn && ['accept', 'adjust', 'reject'].includes(actBtn.dataset.action)) {
       submitTaskResponse(actBtn.dataset.action);
     }
+  });
+}
+if (taskDetailEls.proposedClear) {
+  taskDetailEls.proposedClear.addEventListener('click', () => {
+    taskDetailEls.proposedDate.value = '';
+    if (taskDetailEls.proposedHour) taskDetailEls.proposedHour.value = '09';
+    if (taskDetailEls.proposedMin) taskDetailEls.proposedMin.value = '00';
   });
 }
