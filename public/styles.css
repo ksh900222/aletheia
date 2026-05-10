@@ -1229,6 +1229,20 @@ body.readonly .modal select {
   font-size: 12px;
   width: 100%;
 }
+.team-manage-table tr.team-self-row {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+.team-self-badge {
+  display: inline-block;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 #team-manage-csv {
   width: 100%;
   background: var(--panel-2);

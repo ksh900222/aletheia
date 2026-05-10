@@ -3880,14 +3880,19 @@ async function refreshTeamManageList() {
   for (const p of peers) {
     const tr = document.createElement('tr');
     tr.dataset.name = p.name;
+    if (p.isSelf) tr.classList.add('team-self-row');
+    const nameCell = p.isSelf
+      ? `<span class="display-name">${escapeHtml(p.name)}</span> <span class="team-self-badge">본인</span>`
+      : `<span class="display-name">${escapeHtml(p.name)}</span>`;
+    const actionsCell = p.isSelf
+      ? `<span class="muted" style="font-size:11px;">자동 감지</span>`
+      : `<button class="btn" data-action="edit">편집</button>
+         <button class="btn btn-danger" data-action="remove">삭제</button>`;
     tr.innerHTML = `
-      <td><span class="display-name">${escapeHtml(p.name)}</span></td>
+      <td>${nameCell}</td>
       <td><span class="display-host">${escapeHtml(p.host)}</span></td>
       <td><span class="display-port">${p.port}</span></td>
-      <td class="actions">
-        <button class="btn" data-action="edit">편집</button>
-        <button class="btn btn-danger" data-action="remove">삭제</button>
-      </td>
+      <td class="actions">${actionsCell}</td>
     `;
     teamManageEls.rows.appendChild(tr);
   }

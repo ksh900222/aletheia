@@ -4,9 +4,41 @@
 // import source (legacy file on first boot, or UI-triggered import).
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const csv = require('./csvPeers');
 const peerStore = require('./peerStore');
 const events = require('./events');
+const settings = require('./settings');
+
+// Local network interfaces — used to detect when a peer entry is actually
+// "self" (same machine reachable via its own IP). Cached at first call;
+// if interfaces change while running (rare on a static workstation) the
+// cached set may go stale, so we expose recomputeLocalIPs() for tests.
+let localIPsCache = null;
+function getLocalIPs() {
+  if (localIPsCache) return localIPsCache;
+  const ips = new Set(['127.0.0.1', '::1', 'localhost']);
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const name of Object.keys(ifaces)) {
+      for (const addr of ifaces[name] || []) {
+        if (addr && addr.address) ips.add(addr.address);
+      }
+    }
+  } catch (e) {
+    console.warn('[team] os.networkInterfaces() 실패:', e.message);
+  }
+  localIPsCache = ips;
+  return ips;
+}
+function recomputeLocalIPs() { localIPsCache = null; return getLocalIPs(); }
+
+function isSelfEntry(p) {
+  const cfg = settings.get();
+  const selfPort = Number(cfg.self.port);
+  if (!selfPort || Number(p.port) !== selfPort) return false;
+  return getLocalIPs().has(String(p.host));
+}
 
 const LEGACY_CSV_PATH = process.env.TEAM_PEERS_CSV
   ? path.resolve(process.env.TEAM_PEERS_CSV)
@@ -23,11 +55,18 @@ let inboundFlag = false;
 function getPeers() { return peerStore.list(); }
 function getErrors() { return lastErrors.slice(); }
 function getStatus() {
+  // Tag each peer with isSelf = (host matches a local interface AND port
+  // matches self.port). Lets the UI render a "본인" badge and disable
+  // edit/delete on rows that point back at this very machine.
+  const peers = peerStore.list().map((p) => ({ ...p, isSelf: isSelfEntry(p) }));
   return {
-    peers: getPeers(),
+    peers,
     errors: getErrors(),
     lastReloadedAt,
     dbPath: peerStore.DB_PATH,
+    selfHosts: Array.from(getLocalIPs()),
+    selfName: settings.get().self.name,
+    selfPort: settings.get().self.port,
   };
 }
 
@@ -103,5 +142,6 @@ module.exports = {
   markInboundWrite,
   upsertPeer, removePeer, bulkUpsertPeers, replaceAllPeers,
   writePeers,
+  isSelfEntry, getLocalIPs, recomputeLocalIPs,
   LEGACY_CSV_PATH,
 };
