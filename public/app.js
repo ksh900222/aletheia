@@ -3183,7 +3183,8 @@ function renderAllReportsView() {
       .map((s) => {
         const sCat = findCategoryForSchedule(s);
         const bg = (sCat && sCat.color) || '#1f5fc9';
-        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
+        const statusAttr = s.status ? ` data-status="${escapeHtml(s.status)}"` : '';
+        return `<span class="schedule-pill"${statusAttr} style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join('');
 
     li.innerHTML = `
@@ -3274,8 +3275,9 @@ function renderAllReportsView() {
         const schedHead = document.createElement('h3');
         schedHead.className = 'reports-sched-head';
         const bg = cat.color || '#c9a55a';
+        const schedStatusAttr = sched.status ? ` data-status="${escapeHtml(sched.status)}"` : '';
         schedHead.innerHTML = `
-          <span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(sched.title)}</span>
+          <span class="schedule-pill"${schedStatusAttr} style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(sched.title)}</span>
           <span class="muted">${schedReports.length}건</span>
         `;
         schedGroup.appendChild(schedHead);
@@ -3383,7 +3385,8 @@ function openTeamReportViewer(r) {
     ? `<span class="muted">스케줄</span> ${scheds.map((s) => {
         const sCat = findCategoryForSchedule(s);
         const bg = (sCat && sCat.color) || '#1f5fc9';
-        return `<span class="schedule-pill" style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
+        const statusAttr = s.status ? ` data-status="${escapeHtml(s.status)}"` : '';
+        return `<span class="schedule-pill"${statusAttr} style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join(' ')}`
     : '';
 
