@@ -248,5 +248,18 @@ try {
   console.error('[db] task_request_comments proposed_deadline migration failed:', e.message);
 }
 
+// Migration: task_requests.schedule_id — recipient may convert an accepted
+// inbound request into a schedule on their own planner. Nullable; once set,
+// the linked schedule can be re-edited via the same UI.
+try {
+  const cols = db.prepare(`PRAGMA table_info(task_requests)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'schedule_id')) {
+    console.log('[db] migrating task_requests: adding schedule_id column');
+    db.exec(`ALTER TABLE task_requests ADD COLUMN schedule_id INTEGER`);
+  }
+} catch (e) {
+  console.error('[db] task_requests schedule_id migration failed:', e.message);
+}
+
 module.exports = db;
 module.exports.DB_PATH = DB_PATH;
