@@ -30,6 +30,10 @@ const getReportCategories = db.prepare(
 const getReportAttachments = db.prepare(
   `SELECT * FROM attachments WHERE report_id = ? ORDER BY id ASC`
 );
+const getReportComments = db.prepare(
+  `SELECT id, report_id, author, body, created_at
+     FROM report_comments WHERE report_id = ? ORDER BY id ASC`
+);
 const categoryExists = db.prepare(`SELECT 1 FROM categories WHERE id = ?`);
 
 const insertReportSchedule = db.prepare(
@@ -55,6 +59,7 @@ function decorate(report) {
     categories: getReportCategories.all(report.id),
     schedules: getReportSchedules.all(report.id),
     attachments: getReportAttachments.all(report.id),
+    comments: getReportComments.all(report.id),
   };
 }
 

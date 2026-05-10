@@ -1300,12 +1300,89 @@ body.readonly .modal select {
 
 /* Team report read-only viewer. */
 .team-report-viewer-card {
-  min-width: 520px;
-  max-width: 720px;
-  max-height: 80vh;
+  min-width: 720px;
+  max-width: 1040px;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
 }
+.team-report-viewer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+}
+.team-report-viewer-left,
+.team-report-viewer-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.team-report-viewer-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+}
+.team-comments-title {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+.team-comments-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 80px;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.team-comments-list li {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.team-comments-list li.empty {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  text-align: center;
+}
+.team-comment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.team-comment-author { font-weight: 600; color: var(--text); }
+.team-comment-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.team-comments-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.team-comments-form textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  resize: vertical;
+}
+.team-comments-form button { align-self: flex-end; }
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

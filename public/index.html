@@ -433,18 +433,30 @@
     </div>
   </div>
 
-  <!-- Team report read-only viewer -->
+  <!-- Team report read-only viewer (left = report content, right = comments) -->
   <div id="team-report-viewer-modal" class="modal hidden">
     <div class="modal-card team-report-viewer-card">
       <h3>팀원 리포트 <span class="muted" style="font-size:12px;">(읽기 전용)</span></h3>
-      <div class="team-report-viewer-meta">
-        <div><span class="muted">담당자</span> <span id="team-report-viewer-owner"></span></div>
-        <div><span class="muted">날짜</span> <span id="team-report-viewer-date"></span></div>
-        <div id="team-report-viewer-cats"></div>
-        <div id="team-report-viewer-scheds"></div>
+      <div class="team-report-viewer-grid">
+        <div class="team-report-viewer-left">
+          <div class="team-report-viewer-meta">
+            <div><span class="muted">담당자</span> <span id="team-report-viewer-owner"></span></div>
+            <div><span class="muted">날짜</span> <span id="team-report-viewer-date"></span></div>
+            <div id="team-report-viewer-cats"></div>
+            <div id="team-report-viewer-scheds"></div>
+          </div>
+          <div id="team-report-viewer-body" class="team-report-viewer-body"></div>
+          <div id="team-report-viewer-attachments"></div>
+        </div>
+        <div class="team-report-viewer-right">
+          <h4 class="team-comments-title">코멘트 <span id="team-comments-count" class="muted"></span></h4>
+          <ul id="team-comments-list" class="team-comments-list"></ul>
+          <div class="team-comments-form">
+            <textarea id="team-comments-input" rows="3" placeholder="코멘트를 입력하세요..."></textarea>
+            <button type="button" id="team-comments-submit" class="btn btn-primary">코멘트</button>
+          </div>
+        </div>
       </div>
-      <div id="team-report-viewer-body" class="team-report-viewer-body"></div>
-      <div id="team-report-viewer-attachments"></div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close>닫기</button>
       </div>

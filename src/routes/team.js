@@ -1,4 +1,5 @@
 const express = require('express');
+const db = require('../db');
 const peerWatcher = require('../team/peerWatcher');
 const settings = require('../team/settings');
 const cache = require('../team/cache');
@@ -9,6 +10,19 @@ const events = require('../team/events');
 const csvPeers = require('../team/csvPeers');
 
 const router = express.Router();
+
+// Strip the IPv4-mapped IPv6 prefix (`::ffff:1.2.3.4`) so v4 literals match
+// the host strings stored in peerStore. Mirrors clientIp() in server.js.
+function clientIp(req) {
+  let ip = (req.socket && req.socket.remoteAddress) || '';
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  return ip;
+}
+
+const insertCommentStmt = db.prepare(
+  `INSERT INTO report_comments (report_id, author, body) VALUES (?, ?, ?)`
+);
+const reportExistsStmt = db.prepare(`SELECT 1 AS x FROM reports WHERE id = ?`);
 
 function validatePeerEntry(e) {
   if (!e || typeof e.name !== 'string' || !e.name.trim()) return 'name이 비어 있음';
@@ -155,6 +169,11 @@ router.get('/merged', (req, res) => {
       if (!attsByReport.has(a.report_id)) attsByReport.set(a.report_id, []);
       attsByReport.get(a.report_id).push(a);
     }
+    const cmtsByReport = new Map();
+    for (const c of d.report_comments || []) {
+      if (!cmtsByReport.has(c.report_id)) cmtsByReport.set(c.report_id, []);
+      cmtsByReport.get(c.report_id).push(c);
+    }
 
     for (const c of d.categories || []) merged.categories.push({ ...c, owner });
     for (const s of d.schedules || [])  merged.schedules.push({ ...s, owner });
@@ -174,9 +193,10 @@ router.get('/merged', (req, res) => {
       const atts = (attsByReport.get(r.id) || []).map((a) => ({
         ...a, owner, peerHost, peerPort,
       }));
+      const cmts = (cmtsByReport.get(r.id) || []).map((c) => ({ ...c, owner }));
       merged.reports.push({
         ...r, owner, peerHost, peerPort,
-        categories: cats, schedules: scheds, attachments: atts,
+        categories: cats, schedules: scheds, attachments: atts, comments: cmts,
       });
     }
   }
@@ -270,6 +290,89 @@ router.post('/peer-remove', (req, res) => {
   const ok = peerWatcher.removePeer(name);
   if (!ok) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true, name });
+});
+
+// ───── Cross-peer comments on reports ─────
+//
+// comment-in  : received from another peer's server. Authenticated by token
+//               and by IP-mapping (requester IP must match a peer.host in
+//               our peer list). The matched peer's name becomes the author.
+// comment-out : called by our own UI. Looks up the target peer by name,
+//               then forwards to their /comment-in with our shared token.
+
+router.post('/comment-in', tokenAuth, express.json(), (req, res) => {
+  const { report_id, body } = req.body || {};
+  const reportId = Number(report_id);
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return res.status(400).json({ error: 'invalid_report_id' });
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  if (body.length > 10000) {
+    return res.status(400).json({ error: 'body_too_long' });
+  }
+  const exists = reportExistsStmt.get(reportId);
+  if (!exists) {
+    return res.status(404).json({ error: 'report_not_found' });
+  }
+  // IP cross-check — the requester must be a known peer (or local for dev).
+  const ip = clientIp(req);
+  const peer = peerWatcher.getPeers().find((p) => p.host === ip);
+  const isLoopback = ip === '127.0.0.1' || ip === '::1';
+  if (!peer && !isLoopback) {
+    return res.status(403).json({ error: 'not_team_member', ip });
+  }
+  const author = peer ? peer.name : settings.get().self.name;
+  const info = insertCommentStmt.run(reportId, author, body.trim());
+  events.record('comment_received', {
+    author,
+    report_id: reportId,
+    bodyPreview: body.trim().slice(0, 80),
+    commentId: info.lastInsertRowid,
+  });
+  res.json({ ok: true, id: info.lastInsertRowid, author });
+});
+
+router.post('/comment-out', express.json(), async (req, res) => {
+  const { owner, report_id, body } = req.body || {};
+  if (typeof owner !== 'string' || !owner.trim()) {
+    return res.status(400).json({ error: 'missing_owner' });
+  }
+  const reportId = Number(report_id);
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return res.status(400).json({ error: 'invalid_report_id' });
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
+  if (!target) {
+    return res.status(404).json({ error: 'peer_not_found', detail: owner });
+  }
+  const cfg = settings.get();
+  if (!cfg.sharedToken) {
+    return res.status(503).json({ error: 'team_token_not_configured' });
+  }
+  const url = `http://${target.host}:${target.port}/api/team/comment-in`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Team-Token': cfg.sharedToken,
+      },
+      body: JSON.stringify({ report_id: reportId, body: body.trim() }),
+      signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return res.status(r.status).json({ error: 'forward_failed', detail: data });
+    }
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    res.status(502).json({ error: 'forward_error', detail: e.message });
+  }
 });
 
 router.post('/peer-announce', async (req, res) => {
