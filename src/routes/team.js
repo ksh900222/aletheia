@@ -33,16 +33,27 @@ const getCommentStmt = db.prepare(
 );
 const reportExistsStmt = db.prepare(`SELECT 1 AS x FROM reports WHERE id = ?`);
 
-// Resolve the requester's identity: matches their IP against the local peer
-// list and returns the matched peer.name (so the author / editor / deleter
-// of a comment can never be impersonated by a self-supplied name).
-function resolveRequesterName(req) {
+// Authorize a cross-peer write and identify the originating team member.
+//
+// Why not strict IP→peer.name mapping anymore: when source and destination
+// are on the same machine, the source IP may resolve to 127.0.0.1, ::1, or
+// the LAN address depending on OS routing, which made the mapping flaky and
+// caused author mismatches between insert and edit. Token+IP still gate
+// access ("must be a known team member's machine"), but identity comes from
+// the body's `origin` field — already trusted in /peer-update — keyed on
+// the shared token.
+function authenticateAndIdentify(req) {
   const ip = clientIp(req);
-  const peer = peerWatcher.getPeers().find((p) => p.host === ip);
   const isLoopback = ip === '127.0.0.1' || ip === '::1';
-  if (peer) return { ok: true, name: peer.name, ip };
-  if (isLoopback) return { ok: true, name: settings.get().self.name, ip };
-  return { ok: false, ip };
+  const isPeerHost = peerWatcher.getPeers().some((p) => p.host === ip);
+  if (!isLoopback && !isPeerHost) {
+    return { ok: false, error: 'not_team_member', ip };
+  }
+  const origin = (req.body && typeof req.body.origin === 'string')
+    ? req.body.origin.trim()
+    : '';
+  if (!origin) return { ok: false, error: 'missing_origin', ip };
+  return { ok: true, name: origin, ip };
 }
 
 function validatePeerEntry(e) {
@@ -351,8 +362,8 @@ router.post('/comment-in', tokenAuth, express.json(), (req, res) => {
   if (!reportExistsStmt.get(reportId)) {
     return res.status(404).json({ error: 'report_not_found' });
   }
-  const who = resolveRequesterName(req);
-  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
   const author = who.name;
   const info = insertCommentStmt.run(reportId, author, body.trim());
   events.record('comment_received', {
@@ -378,8 +389,8 @@ router.post('/comment-edit-in', tokenAuth, express.json(), (req, res) => {
   if (body.length > 10000) {
     return res.status(400).json({ error: 'body_too_long' });
   }
-  const who = resolveRequesterName(req);
-  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
   const c = getCommentStmt.get(cid);
   if (!c) return res.status(404).json({ error: 'comment_not_found' });
   if (c.author !== who.name) return res.status(403).json({ error: 'not_author' });
@@ -402,8 +413,8 @@ router.post('/comment-remove-in', tokenAuth, express.json(), (req, res) => {
   if (!Number.isInteger(cid) || cid <= 0) {
     return res.status(400).json({ error: 'invalid_comment_id' });
   }
-  const who = resolveRequesterName(req);
-  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
   const c = getCommentStmt.get(cid);
   if (!c) return res.status(404).json({ error: 'comment_not_found' });
   if (c.author !== who.name) return res.status(403).json({ error: 'not_author' });
@@ -446,7 +457,11 @@ router.post('/comment-out', express.json(), async (req, res) => {
         'Content-Type': 'application/json',
         'X-Team-Token': cfg.sharedToken,
       },
-      body: JSON.stringify({ report_id: reportId, body: body.trim() }),
+      body: JSON.stringify({
+        origin: cfg.self.name,
+        report_id: reportId,
+        body: body.trim(),
+      }),
       signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
     });
     const data = await r.json().catch(() => ({}));
@@ -480,7 +495,11 @@ router.post('/comment-edit-out', express.json(), async (req, res) => {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Team-Token': cfg.sharedToken },
-      body: JSON.stringify({ comment_id: cid, body: body.trim() }),
+      body: JSON.stringify({
+        origin: cfg.self.name,
+        comment_id: cid,
+        body: body.trim(),
+      }),
       signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
     });
     const data = await r.json().catch(() => ({}));
@@ -509,7 +528,10 @@ router.post('/comment-remove-out', express.json(), async (req, res) => {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Team-Token': cfg.sharedToken },
-      body: JSON.stringify({ comment_id: cid }),
+      body: JSON.stringify({
+        origin: cfg.self.name,
+        comment_id: cid,
+      }),
       signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
     });
     const data = await r.json().catch(() => ({}));
