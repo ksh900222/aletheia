@@ -351,7 +351,23 @@ html, body {
 .shifted-line::before  { content: '↓ '; color: var(--info); }
 .conflict-line::before { content: '⚠ '; color: var(--danger); }
 
-.report-modal-card { width: 560px; }
+/* Higher specificity so the .modal-card base rule (defined later) doesn't
+   override these widths via cascade order. Left column = original modal
+   form width (560px); right column = comments panel (~430px). */
+.modal-card.report-modal-card { width: 1064px; max-width: 96vw; }
+.report-modal-grid {
+  display: grid;
+  grid-template-columns: 560px 1fr;
+  gap: 22px;
+}
+.report-modal-left { min-width: 0; }
+.report-modal-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 
 .report-meta-box {
   background: var(--panel-2);
@@ -1299,13 +1315,179 @@ body.readonly .modal select {
 .team-manage-file-label input[type="file"] { display: none; }
 
 /* Team report read-only viewer. */
-.team-report-viewer-card {
-  min-width: 520px;
-  max-width: 720px;
-  max-height: 80vh;
+.modal-card.team-report-viewer-card {
+  min-width: 900px;
+  width: 1200px;
+  max-width: 96vw;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
 }
+.team-report-viewer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+}
+.team-report-viewer-left,
+.team-report-viewer-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.team-report-viewer-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+}
+.team-comments-title {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+.team-comments-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 80px;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.team-comments-list li {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.team-comments-list li.empty {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  text-align: center;
+}
+.team-comment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.team-comment-author { font-weight: 600; color: var(--text); }
+.team-comment-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.team-comments-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.team-comments-form textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  resize: vertical;
+}
+.team-comments-form button { align-self: flex-end; }
+
+/* Edit/delete affordances on comments authored by the viewer. */
+.team-comment-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn-link:hover { color: var(--text); text-decoration: underline; }
+.btn-link-danger { color: rgba(239, 107, 107, 0.75); }
+.btn-link-danger:hover { color: var(--danger); }
+
+.team-comment-edit-wrapper { margin-top: 4px; }
+.team-comment-edit-input {
+  width: 100%;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+.team-comment-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+.team-comment-edit-actions .btn {
+  padding: 3px 12px;
+  font-size: 11px;
+}
+
+/* "내 코멘트 N" indicator — appears next to date heading (ON mode) and
+   next to schedule pill (OFF mode) so the commenter can locate where
+   they left feedback. */
+.my-comment-badge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* "받은 코멘트 N / 확인 n" indicator — same shape as my-comment-badge but
+   a different accent (warning) so unread feedback stands out. When all
+   comments are acknowledged the badge drops the warning tint and looks
+   neutral so it stops drawing attention. */
+.received-comment-badge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.received-comment-badge.all-acked {
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--muted) 30%, transparent);
+}
+
+/* Acked received comment — slight visual de-emphasis so unread ones are
+   the focal point. */
+.team-comments-list li.comment-acked .team-comment-body { opacity: 0.7; }
+.team-comments-list li.comment-acked .team-comment-author { opacity: 0.85; }
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

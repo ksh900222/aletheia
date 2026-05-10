@@ -95,6 +95,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_report_schedules_schedule ON report_schedules(schedule_id);
 
+  -- Cross-peer comments left by other team members on this user's reports.
+  -- author = peer name resolved via IP at /api/team/comment-in time.
+  CREATE TABLE IF NOT EXISTS report_comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id   INTEGER NOT NULL,
+    author      TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_report_comments_report ON report_comments(report_id);
+
   CREATE TABLE IF NOT EXISTS schema_migrations (
     name        TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -163,6 +175,19 @@ try {
   }
 } catch (e) {
   console.error('[db] schedules status migration failed:', e.message);
+}
+
+// Migration: report_comments.acknowledged — used by the report owner to
+// mark a received comment as read. Defaults to 0 (unread). Existing rows
+// stay 0 so they appear as unread until the user acknowledges them.
+try {
+  const cols = db.prepare(`PRAGMA table_info(report_comments)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'acknowledged')) {
+    console.log('[db] migrating report_comments: adding acknowledged column');
+    db.exec(`ALTER TABLE report_comments ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0`);
+  }
+} catch (e) {
+  console.error('[db] report_comments acknowledged migration failed:', e.message);
 }
 
 module.exports = db;
