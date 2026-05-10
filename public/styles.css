@@ -1400,6 +1400,67 @@ body.readonly .modal select {
   resize: vertical;
 }
 .team-comments-form button { align-self: flex-end; }
+
+/* Edit/delete affordances on comments authored by the viewer. */
+.team-comment-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn-link:hover { color: var(--text); text-decoration: underline; }
+.btn-link-danger { color: rgba(239, 107, 107, 0.75); }
+.btn-link-danger:hover { color: var(--danger); }
+
+.team-comment-edit-wrapper { margin-top: 4px; }
+.team-comment-edit-input {
+  width: 100%;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+.team-comment-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+.team-comment-edit-actions .btn {
+  padding: 3px 12px;
+  font-size: 11px;
+}
+
+/* "내 코멘트 N" indicator — appears next to date heading (ON mode) and
+   next to schedule pill (OFF mode) so the commenter can locate where
+   they left feedback. */
+.my-comment-badge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+}
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

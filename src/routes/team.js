@@ -22,7 +22,28 @@ function clientIp(req) {
 const insertCommentStmt = db.prepare(
   `INSERT INTO report_comments (report_id, author, body) VALUES (?, ?, ?)`
 );
+const updateCommentStmt = db.prepare(
+  `UPDATE report_comments SET body = ? WHERE id = ? AND author = ?`
+);
+const deleteCommentStmt = db.prepare(
+  `DELETE FROM report_comments WHERE id = ? AND author = ?`
+);
+const getCommentStmt = db.prepare(
+  `SELECT id, report_id, author, body, created_at FROM report_comments WHERE id = ?`
+);
 const reportExistsStmt = db.prepare(`SELECT 1 AS x FROM reports WHERE id = ?`);
+
+// Resolve the requester's identity: matches their IP against the local peer
+// list and returns the matched peer.name (so the author / editor / deleter
+// of a comment can never be impersonated by a self-supplied name).
+function resolveRequesterName(req) {
+  const ip = clientIp(req);
+  const peer = peerWatcher.getPeers().find((p) => p.host === ip);
+  const isLoopback = ip === '127.0.0.1' || ip === '::1';
+  if (peer) return { ok: true, name: peer.name, ip };
+  if (isLoopback) return { ok: true, name: settings.get().self.name, ip };
+  return { ok: false, ip };
+}
 
 function validatePeerEntry(e) {
   if (!e || typeof e.name !== 'string' || !e.name.trim()) return 'name이 비어 있음';
@@ -327,18 +348,12 @@ router.post('/comment-in', tokenAuth, express.json(), (req, res) => {
   if (body.length > 10000) {
     return res.status(400).json({ error: 'body_too_long' });
   }
-  const exists = reportExistsStmt.get(reportId);
-  if (!exists) {
+  if (!reportExistsStmt.get(reportId)) {
     return res.status(404).json({ error: 'report_not_found' });
   }
-  // IP cross-check — the requester must be a known peer (or local for dev).
-  const ip = clientIp(req);
-  const peer = peerWatcher.getPeers().find((p) => p.host === ip);
-  const isLoopback = ip === '127.0.0.1' || ip === '::1';
-  if (!peer && !isLoopback) {
-    return res.status(403).json({ error: 'not_team_member', ip });
-  }
-  const author = peer ? peer.name : settings.get().self.name;
+  const who = resolveRequesterName(req);
+  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const author = who.name;
   const info = insertCommentStmt.run(reportId, author, body.trim());
   events.record('comment_received', {
     author,
@@ -347,6 +362,60 @@ router.post('/comment-in', tokenAuth, express.json(), (req, res) => {
     commentId: info.lastInsertRowid,
   });
   res.json({ ok: true, id: info.lastInsertRowid, author });
+});
+
+// Edit a previously left comment. Only the original author (resolved by IP)
+// is allowed — same security model as /comment-in.
+router.post('/comment-edit-in', tokenAuth, express.json(), (req, res) => {
+  const { comment_id, body } = req.body || {};
+  const cid = Number(comment_id);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    return res.status(400).json({ error: 'invalid_comment_id' });
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  if (body.length > 10000) {
+    return res.status(400).json({ error: 'body_too_long' });
+  }
+  const who = resolveRequesterName(req);
+  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const c = getCommentStmt.get(cid);
+  if (!c) return res.status(404).json({ error: 'comment_not_found' });
+  if (c.author !== who.name) return res.status(403).json({ error: 'not_author' });
+
+  const info = updateCommentStmt.run(body.trim(), cid, who.name);
+  if (info.changes === 0) return res.status(500).json({ error: 'update_failed' });
+  events.record('comment_edited', {
+    author: who.name,
+    report_id: c.report_id,
+    commentId: cid,
+    bodyPreview: body.trim().slice(0, 80),
+  });
+  res.json({ ok: true, id: cid });
+});
+
+// Delete a previously left comment. Only the original author can remove it.
+router.post('/comment-remove-in', tokenAuth, express.json(), (req, res) => {
+  const { comment_id } = req.body || {};
+  const cid = Number(comment_id);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    return res.status(400).json({ error: 'invalid_comment_id' });
+  }
+  const who = resolveRequesterName(req);
+  if (!who.ok) return res.status(403).json({ error: 'not_team_member', ip: who.ip });
+  const c = getCommentStmt.get(cid);
+  if (!c) return res.status(404).json({ error: 'comment_not_found' });
+  if (c.author !== who.name) return res.status(403).json({ error: 'not_author' });
+
+  const info = deleteCommentStmt.run(cid, who.name);
+  if (info.changes === 0) return res.status(500).json({ error: 'delete_failed' });
+  events.record('comment_removed', {
+    author: who.name,
+    report_id: c.report_id,
+    commentId: cid,
+  });
+  res.json({ ok: true, id: cid });
 });
 
 router.post('/comment-out', express.json(), async (req, res) => {
@@ -384,6 +453,67 @@ router.post('/comment-out', express.json(), async (req, res) => {
     if (!r.ok) {
       return res.status(r.status).json({ error: 'forward_failed', detail: data });
     }
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    res.status(502).json({ error: 'forward_error', detail: e.message });
+  }
+});
+
+router.post('/comment-edit-out', express.json(), async (req, res) => {
+  const { owner, comment_id, body } = req.body || {};
+  if (typeof owner !== 'string' || !owner.trim()) {
+    return res.status(400).json({ error: 'missing_owner' });
+  }
+  const cid = Number(comment_id);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    return res.status(400).json({ error: 'invalid_comment_id' });
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
+  if (!target) return res.status(404).json({ error: 'peer_not_found', detail: owner });
+  const cfg = settings.get();
+  if (!cfg.sharedToken) return res.status(503).json({ error: 'team_token_not_configured' });
+  const url = `http://${target.host}:${target.port}/api/team/comment-edit-in`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Team-Token': cfg.sharedToken },
+      body: JSON.stringify({ comment_id: cid, body: body.trim() }),
+      signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json({ error: 'forward_failed', detail: data });
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    res.status(502).json({ error: 'forward_error', detail: e.message });
+  }
+});
+
+router.post('/comment-remove-out', express.json(), async (req, res) => {
+  const { owner, comment_id } = req.body || {};
+  if (typeof owner !== 'string' || !owner.trim()) {
+    return res.status(400).json({ error: 'missing_owner' });
+  }
+  const cid = Number(comment_id);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    return res.status(400).json({ error: 'invalid_comment_id' });
+  }
+  const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
+  if (!target) return res.status(404).json({ error: 'peer_not_found', detail: owner });
+  const cfg = settings.get();
+  if (!cfg.sharedToken) return res.status(503).json({ error: 'team_token_not_configured' });
+  const url = `http://${target.host}:${target.port}/api/team/comment-remove-in`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Team-Token': cfg.sharedToken },
+      body: JSON.stringify({ comment_id: cid }),
+      signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json({ error: 'forward_failed', detail: data });
     res.json({ ok: true, ...data });
   } catch (e) {
     res.status(502).json({ error: 'forward_error', detail: e.message });
