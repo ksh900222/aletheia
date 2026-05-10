@@ -33,6 +33,15 @@ const getCommentStmt = db.prepare(
 );
 const reportExistsStmt = db.prepare(`SELECT 1 AS x FROM reports WHERE id = ?`);
 
+const insertTaskReqStmt = db.prepare(
+  `INSERT INTO task_requests (direction, sender, recipient, body, deadline, group_id, status)
+   VALUES ('inbound', ?, ?, ?, ?, ?, 'pending')`
+);
+const insertTaskAttStmt = db.prepare(
+  `INSERT INTO task_request_attachments (task_request_id, kind, path, display_name, size_bytes)
+   VALUES (?, ?, ?, ?, ?)`
+);
+
 // Authorize a cross-peer write and identify the originating team member.
 //
 // Why not strict IP→peer.name mapping anymore: when source and destination
@@ -540,6 +549,53 @@ router.post('/comment-remove-out', express.json(), async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: 'forward_error', detail: e.message });
   }
+});
+
+// Cross-peer receive of a task request. Stored as 'inbound' on this side so
+// the recipient can later list / view it. Attachment metadata is preserved
+// but actual files stay on the sender's instance — clients fetch them via
+// http://<sender-host>:<sender-port>/uploads/<path>. peer_port helps the
+// frontend build that URL since the requester IP is the only identity the
+// network gives us here.
+router.post('/task-request-in', tokenAuth, express.json(), (req, res) => {
+  const { body, deadline, group_id, attachments } = req.body || {};
+  if (typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  if (body.length > 10000) {
+    return res.status(400).json({ error: 'body_too_long' });
+  }
+  const who = authenticateAndIdentify(req);
+  if (!who.ok) return res.status(403).json({ error: who.error, ip: who.ip });
+
+  const recipient = settings.get().self.name;
+  const sender = who.name;
+  let reqId = null;
+  db.transaction(() => {
+    const info = insertTaskReqStmt.run(
+      sender, recipient, body.trim(), deadline || null, group_id || null
+    );
+    reqId = info.lastInsertRowid;
+    if (Array.isArray(attachments)) {
+      for (const a of attachments) {
+        if (!a || typeof a.path !== 'string' || !a.path) continue;
+        if (!a.kind || (a.kind !== 'upload' && a.kind !== 'local_path')) continue;
+        const dn = typeof a.display_name === 'string' ? a.display_name : a.path;
+        const sz = Number.isInteger(a.size_bytes) ? a.size_bytes : null;
+        insertTaskAttStmt.run(reqId, a.kind, a.path, dn, sz);
+      }
+    }
+  })();
+
+  events.record('task_request_received', {
+    sender,
+    bodyPreview: body.trim().slice(0, 80),
+    deadline: deadline || null,
+    groupId: group_id || null,
+    requestId: reqId,
+  });
+
+  res.json({ ok: true, id: reqId });
 });
 
 router.post('/peer-announce', async (req, res) => {

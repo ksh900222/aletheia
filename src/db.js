@@ -107,6 +107,36 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_report_comments_report ON report_comments(report_id);
 
+  -- Task requests — outbound rows are stored on the sender's instance,
+  -- inbound rows on the recipient's. Linked to optional file attachments.
+  -- group_id ties multi-recipient requests together so the sender's outbox
+  -- can show "1 request to 3 people" instead of 3 unrelated rows.
+  CREATE TABLE IF NOT EXISTS task_requests (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction    TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
+    sender       TEXT NOT NULL,
+    recipient    TEXT NOT NULL,
+    body         TEXT NOT NULL DEFAULT '',
+    deadline     TEXT,
+    group_id     TEXT,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_requests_direction ON task_requests(direction);
+  CREATE INDEX IF NOT EXISTS idx_task_requests_group ON task_requests(group_id);
+
+  CREATE TABLE IF NOT EXISTS task_request_attachments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_request_id INTEGER NOT NULL,
+    kind            TEXT NOT NULL CHECK (kind IN ('upload', 'local_path')),
+    path            TEXT NOT NULL,
+    display_name    TEXT NOT NULL,
+    size_bytes      INTEGER,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_request_id) REFERENCES task_requests(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_request_attachments_request ON task_request_attachments(task_request_id);
+
   CREATE TABLE IF NOT EXISTS schema_migrations (
     name        TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
