@@ -28,17 +28,13 @@ app.use(express.json({ limit: '1mb' }));
 
 // IP-based write authorization. Only requests originating from these IPs are
 // allowed to mutate state (POST/PUT/PATCH/DELETE). Reads (GET/HEAD/OPTIONS)
-// are open to everyone on the network. To change the allowlist, edit this
-// set and restart the server.
+// are open to everyone on the network. The operator's own machine (all local
+// network interfaces) is auto-included via peerWatcher.getLocalIPs() so the
+// person who launched the server is never read-only on their own PC, even
+// when accessing it from their LAN IP rather than localhost.
 const WRITE_ALLOWLIST = new Set([
-  '10.115.41.127',
-  '10.115.33.155', // 임시 비활성화 — 다시 권한을 주려면 주석 해제
-  '10.115.147.185',
-  '192.168.0.16',  // 외부망 (집/공유기 등) 접속 IP
-  // Loopback included so the operator can administer from the host machine
-  // itself. Remove these two lines if local writes should also be blocked.
-  '127.0.0.1',
-  '::1',
+  // 추가 IP 가 필요하면 여기에 적고 재시작. (자기 PC 의 IP 는 자동 등록되므로
+  // 보통은 비워두면 됨.)
 ]);
 
 function clientIp(req) {
@@ -50,7 +46,9 @@ function clientIp(req) {
 }
 
 function canWrite(req) {
-  return WRITE_ALLOWLIST.has(clientIp(req));
+  const ip = clientIp(req);
+  if (WRITE_ALLOWLIST.has(ip)) return true;
+  return peerWatcher.getLocalIPs().has(ip);
 }
 
 // 첨부 다운로드 권한: 본인 PC(WRITE_ALLOWLIST) 또는 등록된 team peer 만 허용.
@@ -162,5 +160,10 @@ app.listen(PORT, HOST, () => {
   console.log(`project_planner listening on http://${HOST}:${PORT}`);
   if (HOST === '0.0.0.0') {
     console.log(`  (also reachable from other devices on this network)`);
+  }
+  const autoIps = Array.from(peerWatcher.getLocalIPs()).filter((s) => s !== 'localhost');
+  console.log(`[server] write 자동 허용 (자기 PC IP): ${autoIps.join(', ')}`);
+  if (WRITE_ALLOWLIST.size > 0) {
+    console.log(`[server] write 추가 허용 (수동): ${Array.from(WRITE_ALLOWLIST).join(', ')}`);
   }
 });
