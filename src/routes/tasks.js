@@ -23,6 +23,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
+// 검증 실패 시 multer 가 이미 디스크에 쓴 업로드 파일 삭제 (C-5).
+function cleanupReqUploads(req) {
+  for (const f of (req.files || [])) {
+    fs.unlink(path.join(UPLOAD_DIR, f.filename), () => {});
+  }
+}
+
 const insertReqStmt = db.prepare(
   `INSERT INTO task_requests (direction, sender, recipient, body, deadline, group_id, status)
    VALUES (?, ?, ?, ?, ?, ?, 'pending')`
@@ -85,22 +92,36 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
   try {
     recipientList = JSON.parse(req.body.recipients || '[]');
   } catch (e) {
+    cleanupReqUploads(req);
     return res.status(400).json({ error: 'invalid_recipients' });
   }
   if (!Array.isArray(recipientList) || recipientList.length === 0) {
+    cleanupReqUploads(req);
     return res.status(400).json({ error: 'no_recipients' });
   }
   const body = String(req.body.body || '').trim();
-  if (!body) return res.status(400).json({ error: 'empty_body' });
-  if (body.length > 10000) return res.status(400).json({ error: 'body_too_long' });
+  if (!body) {
+    cleanupReqUploads(req);
+    return res.status(400).json({ error: 'empty_body' });
+  }
+  if (body.length > 10000) {
+    cleanupReqUploads(req);
+    return res.status(400).json({ error: 'body_too_long' });
+  }
   // Deadline format: client sends "YYYY-MM-DD HH:MM". Required — frontend
   // also blocks empty deadlines but we double-check here.
   const deadline = req.body.deadline ? String(req.body.deadline).trim() : '';
-  if (!deadline) return res.status(400).json({ error: 'deadline_required' });
+  if (!deadline) {
+    cleanupReqUploads(req);
+    return res.status(400).json({ error: 'deadline_required' });
+  }
 
   const cfg = settings.get();
   const sender = cfg.self.name;
-  if (!sender) return res.status(503).json({ error: 'self_name_not_configured' });
+  if (!sender) {
+    cleanupReqUploads(req);
+    return res.status(503).json({ error: 'self_name_not_configured' });
+  }
 
   // Resolve recipients against the local peer list. Reject names that aren't
   // registered — keeps drift between the picker and the active list explicit.
@@ -113,6 +134,7 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
     else validRecipients.push(p);
   }
   if (validRecipients.length === 0) {
+    cleanupReqUploads(req);
     return res.status(400).json({ error: 'no_valid_recipients', detail: { unknown } });
   }
 

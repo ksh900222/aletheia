@@ -765,8 +765,116 @@ function topoSortForGantt(visible) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  // KST 기준 로컬 날짜. UTC 기반 toISOString() 은 자정~오전 9시에 어제로
+  // 표시되는 H-9 버그를 일으키므로 사용 금지.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
+
+// H-8: 폼 더블클릭/엔터 연타 방지. submit 핸들러를 이걸로 감싸면
+// 응답 도착 또는 에러까지 submit 버튼이 disable 되어 중복 POST 차단.
+function withSubmitGuard(form, fn) {
+  if (form._submitting) return Promise.resolve();
+  form._submitting = true;
+  const submitter = form.querySelector('button[type="submit"]');
+  if (submitter) submitter.disabled = true;
+  return Promise.resolve()
+    .then(() => fn())
+    .finally(() => {
+      form._submitting = false;
+      if (submitter) submitter.disabled = false;
+    });
+}
+
+// H-19: 서버가 보내는 영문 enum 코드를 한국어 메시지로 매핑.
+// alert 직접 호출부에서 `${err.message}` 대신 `${mapServerError(err)}` 사용.
+const SERVER_ERROR_MESSAGES = {
+  // dependencies
+  cycle_detected: '순환 의존이 발생합니다.',
+  self_loop: '자기 자신을 가리킬 수 없습니다.',
+  container_cycle: '카테고리와 그 안의 스케줄 사이에는 의존을 걸 수 없습니다.',
+  pred_not_found: '선행 대상을 찾을 수 없습니다.',
+  succ_not_found: '후행 대상을 찾을 수 없습니다.',
+  current_not_found: '"현재" 대상을 찾을 수 없습니다.',
+  duplicate: '동일한 의존이 이미 존재합니다.',
+  no_edge: '선행 또는 후행 중 하나는 선택해야 합니다.',
+  invalid_current: '"현재" 입력이 올바르지 않습니다.',
+  invalid_link_type: '연결 유형이 올바르지 않습니다.',
+  invalid_on_delay: '충돌 시 동작값이 올바르지 않습니다.',
+  invalid_entity_type: '선행/후행 종류가 올바르지 않습니다.',
+  invalid_id: '선택된 항목의 ID가 올바르지 않습니다.',
+  not_found: '편집 중이던 항목이 더 이상 존재하지 않습니다. 새로고침 후 다시 시도해주세요.',
+  // schedules
+  end_before_start: '종료일이 시작일보다 빠릅니다.',
+  invalid_date: '날짜 형식이 올바르지 않습니다.',
+  invalid_start: '시작일 형식이 올바르지 않습니다.',
+  invalid_end: '종료일 형식이 올바르지 않습니다.',
+  start_after_end: '시작일이 종료일보다 늦습니다.',
+  empty_title: '제목을 입력해주세요.',
+  category_not_found: '카테고리를 찾을 수 없습니다.',
+  invalid_category_id: '카테고리가 올바르지 않습니다.',
+  // reports
+  empty_body: '내용을 입력해주세요.',
+  body_too_long: '내용이 너무 깁니다.',
+  // attachments
+  report_not_found: '리포트를 찾을 수 없습니다. 새로고침 후 다시 시도해주세요.',
+  no_file: '파일이 첨부되지 않았습니다.',
+  path_required: '경로가 비어 있습니다.',
+  path_invalid: '경로 형식이 잘못되었습니다.',
+  path_too_long: '경로가 너무 깁니다.',
+  path_not_absolute: '절대 경로만 등록할 수 있습니다.',
+  // tasks
+  invalid_recipients: '수신자 목록이 올바르지 않습니다.',
+  no_recipients: '수신자를 한 명 이상 선택해주세요.',
+  no_valid_recipients: '등록된 팀원 중 일치하는 수신자가 없습니다.',
+  deadline_required: '마감일을 입력해주세요.',
+  self_name_not_configured: '본인 이름이 설정되어 있지 않습니다. 팀 설정을 확인해주세요.',
+  task_not_found: '업무 요청을 찾을 수 없습니다.',
+  not_inbound: '받은 업무에 대해서만 동작합니다.',
+  invalid_action: '동작이 올바르지 않습니다.',
+  body_required_for_adjust: '조정 사유를 입력해주세요.',
+  // team auth
+  forbidden_write_from_ip: '이 IP에서는 변경 권한이 없습니다.',
+  forbidden_local_only: '이 작업은 본인 PC에서만 가능합니다.',
+  forbidden_read_from_ip: '이 IP에서는 읽기 권한이 없습니다.',
+  not_team_member: '등록된 팀원이 아닌 IP입니다.',
+  missing_origin: '발신자 정보가 누락되었습니다.',
+  origin_mismatch: '발신자 이름이 IP와 일치하지 않습니다.',
+  team_token_not_configured: '팀 공유 토큰이 설정되어 있지 않습니다.',
+  invalid_team_token: '팀 공유 토큰이 일치하지 않습니다.',
+  outbound_not_found: '대응되는 보낸 업무를 찾지 못했습니다.',
+  // generic
+  internal_error: '서버 내부 오류가 발생했습니다.',
+  duplicate_name: '같은 이름이 이미 존재합니다.',
+};
+function mapServerError(err) {
+  const code = (err && err.message) || '';
+  if (SERVER_ERROR_MESSAGES[code]) return SERVER_ERROR_MESSAGES[code];
+  return code || '알 수 없는 오류';
+}
+
+// H-13: 탭이 백그라운드일 때 폴링 멈췄다가 visible 되면 즉시 1회 + 재시작.
+// 모든 setInterval 폴링 호출은 이 헬퍼를 통해 등록.
+const _polls = [];
+function registerPoll(fn, ms) {
+  const entry = { fn, ms, timer: null };
+  _polls.push(entry);
+  const start = () => { if (!entry.timer) entry.timer = setInterval(fn, ms); };
+  const stop  = () => { if (entry.timer) { clearInterval(entry.timer); entry.timer = null; } };
+  if (document.visibilityState !== 'hidden') start();
+  entry.start = start; entry.stop = stop;
+  return entry;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    for (const e of _polls) e.stop();
+  } else {
+    for (const e of _polls) { e.fn(); e.start(); }
+  }
+});
 
 // Number of comments on this report authored by the current user. Used to
 // surface "내 코멘트 N" badges so commenters can locate their own threads.
@@ -1279,7 +1387,7 @@ async function handleBarConnectionClick(schedule, linkType) {
       pred_not_found: '선행 항목을 찾을 수 없습니다.',
       succ_not_found: '후행 항목을 찾을 수 없습니다.',
     };
-    alert(map[err.message] || `의존성 생성 실패: ${err.message}`);
+    alert(`의존성 생성 실패: ${mapServerError(err)}`);
   }
 }
 function cancelDepDraft() {
@@ -1415,6 +1523,9 @@ document.addEventListener('keydown', (e) => {
 
   const cmd = e.metaKey || e.ctrlKey;
   if (!cmd) return;
+  // H-16: 모달이 열려 있으면 글로벌 undo/redo 비활성화. 모달 안에서 빈 영역
+  // 클릭 후 Cmd+Z 누르면 백그라운드 데이터가 사일런트 변경되는 문제 차단.
+  if (document.querySelector('.modal:not(.hidden)')) return;
   const k = e.key.toLowerCase();
 
   // Redo: Cmd/Ctrl+Shift+Z OR Cmd/Ctrl+Y. Check before bare-Z so Shift doesn't
@@ -1458,7 +1569,10 @@ function directStrongSchedulePredecessors(schedule) {
 }
 
 function attachBarDragHandlers(bar, schedule) {
-  bar.addEventListener('mousedown', (e) => {
+  // H-18: pointerdown 사용 (mouseup 이 윈도우 밖에서 안 오는 문제 해결).
+  bar.addEventListener('pointerdown', (e) => {
+    // 마우스 좌클릭만 처리 (touch / pen 도 button=0 으로 들어옴 — 기본 동작 유지).
+    if (e.button !== undefined && e.button !== 0) return;
     // Team-owned schedule: read-only. Block all drag/connect/report actions.
     if (schedule.owner) return;
     if (e.target.classList.contains('resize-handle')) return;
@@ -1534,8 +1648,10 @@ function attachBarDragHandlers(bar, schedule) {
       }
     }
     async function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      // H-18: pointer events + setPointerCapture 사용. pointercancel 도 정리 대상.
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
       bar.classList.remove('dragging');
       for (const g of groupExtras) {
         g.bar.classList.remove('dragging', 'group-extra');
@@ -1577,13 +1693,18 @@ function attachBarDragHandlers(bar, schedule) {
         await saveScheduleGroupFromGantt(moves);
       }
     }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    // H-18: setPointerCapture 로 윈도우 밖 release 도 보장.
+    try { bar.setPointerCapture(e.pointerId); } catch {}
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   });
 }
 
 function attachBarResizeHandlers(handle, bar, schedule) {
-  handle.addEventListener('mousedown', (e) => {
+  // H-18: pointer events.
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
     // Team-owned schedule: read-only. Block resize entirely so the bar's
     // length can't be altered via drag handle (CSS also hides the handle).
     if (schedule.owner) {
@@ -1603,16 +1724,19 @@ function attachBarResizeHandlers(handle, bar, schedule) {
       bar.style.width = newWidth + 'px';
     }
     async function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
       const finalWidth = parseFloat(bar.style.width);
       const dayDelta = Math.round((finalWidth - origWidth) / GANTT_DAY_WIDTH);
       if (dayDelta === 0) return;
       const newEnd = addDaysIso(schedule.planned_end, dayDelta);
       await saveScheduleFromGantt(schedule.id, schedule.planned_start, newEnd);
     }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   });
 }
 
@@ -1752,7 +1876,7 @@ async function saveScheduleFromGantt(id, plannedStart, plannedEnd) {
     renderSchedules();
     if (res && res.cascade) reportCascade(res.cascade);
   } catch (err) {
-    alert(`저장 실패: ${err.message}`);
+    alert(`저장 실패: ${mapServerError(err)}`);
     renderSchedules();
   }
 }
@@ -1804,7 +1928,7 @@ async function saveScheduleGroupFromGantt(moves) {
     renderSchedules();
     if (lastCascade) reportCascade(lastCascade);
   } catch (err) {
-    alert(`그룹 이동 실패: ${err.message}`);
+    alert(`그룹 이동 실패: ${mapServerError(err)}`);
     renderSchedules();
   }
 }
@@ -2058,39 +2182,41 @@ els.deleteCategoryBtn.addEventListener('click', async () => {
 
 els.categoryForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const fd = new FormData(els.categoryForm);
-  const payload = {
-    name: fd.get('name'),
-    description: fd.get('description') || null,
-    color: fd.get('color'),
-  };
-  const editId = els.categoryForm.dataset.editId;
-  // When the modal was opened from the task-detail schedule pane we don't want
-  // to navigate away to the new category — just refresh the dropdown there.
-  const fromTaskSched = els.categoryForm.dataset.fromTaskSched === '1';
-  try {
-    let saved;
-    if (editId) {
-      saved = await api('PUT', `/api/categories/${editId}`, payload);
-    } else {
-      saved = await api('POST', '/api/categories', payload);
-    }
-    closeCategoryModal();
-    if (fromTaskSched) {
-      els.categoryForm.dataset.fromTaskSched = '';
-      // Refresh main category list state silently and the schedule-pane select.
-      await loadCategories();
-      await loadCategoriesIntoSchedSelect();
-      if (taskDetailEls.schedCategory && saved && saved.id) {
-        taskDetailEls.schedCategory.value = String(saved.id);
+  await withSubmitGuard(els.categoryForm, async () => {
+    const fd = new FormData(els.categoryForm);
+    const payload = {
+      name: fd.get('name'),
+      description: fd.get('description') || null,
+      color: fd.get('color'),
+    };
+    const editId = els.categoryForm.dataset.editId;
+    // When the modal was opened from the task-detail schedule pane we don't want
+    // to navigate away to the new category — just refresh the dropdown there.
+    const fromTaskSched = els.categoryForm.dataset.fromTaskSched === '1';
+    try {
+      let saved;
+      if (editId) {
+        saved = await api('PUT', `/api/categories/${editId}`, payload);
+      } else {
+        saved = await api('POST', '/api/categories', payload);
       }
-      return;
+      closeCategoryModal();
+      if (fromTaskSched) {
+        els.categoryForm.dataset.fromTaskSched = '';
+        // Refresh main category list state silently and the schedule-pane select.
+        await loadCategories();
+        await loadCategoriesIntoSchedSelect();
+        if (taskDetailEls.schedCategory && saved && saved.id) {
+          taskDetailEls.schedCategory.value = String(saved.id);
+        }
+        return;
+      }
+      await refreshAll();
+      selectCategory(saved.id);
+    } catch (err) {
+      alert(`저장 실패: ${mapServerError(err)}`);
     }
-    await refreshAll();
-    selectCategory(saved.id);
-  } catch (err) {
-    alert(`저장 실패: ${err.message}`);
-  }
+  });
 });
 
 // ---------- Schedule modal ----------
@@ -2112,7 +2238,7 @@ function openScheduleModal(schedule) {
     els.scheduleForm.planned_end.value = schedule.planned_end;
     els.scheduleForm.status.value = schedule.status;
   } else {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     els.scheduleForm.planned_start.value = today;
     els.scheduleForm.planned_end.value = today;
   }
@@ -2160,34 +2286,36 @@ els.addScheduleBtn.addEventListener('click', () => {
 
 els.scheduleForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const fd = new FormData(els.scheduleForm);
-  const categoryId = Number(els.scheduleForm.dataset.categoryId) || null;
-  if (!categoryId) {
-    alert('카테고리를 알 수 없습니다. 사이드바에서 카테고리를 선택한 뒤 다시 시도해주세요.');
-    return;
-  }
-  const payload = {
-    category_id: categoryId,
-    title: fd.get('title'),
-    description: fd.get('description') || null,
-    planned_start: fd.get('planned_start'),
-    planned_end: fd.get('planned_end'),
-    status: fd.get('status') || 'pending',
-  };
-  const editId = els.scheduleForm.dataset.editId;
-  try {
-    let res;
-    if (editId) {
-      res = await api('PUT', `/api/schedules/${editId}`, payload);
-    } else {
-      res = await api('POST', '/api/schedules', payload);
+  await withSubmitGuard(els.scheduleForm, async () => {
+    const fd = new FormData(els.scheduleForm);
+    const categoryId = Number(els.scheduleForm.dataset.categoryId) || null;
+    if (!categoryId) {
+      alert('카테고리를 알 수 없습니다. 사이드바에서 카테고리를 선택한 뒤 다시 시도해주세요.');
+      return;
     }
-    closeScheduleModal();
-    await refreshAll();
-    if (res && res.cascade) reportCascade(res.cascade);
-  } catch (err) {
-    alert(`저장 실패: ${err.message}`);
-  }
+    const payload = {
+      category_id: categoryId,
+      title: fd.get('title'),
+      description: fd.get('description') || null,
+      planned_start: fd.get('planned_start'),
+      planned_end: fd.get('planned_end'),
+      status: fd.get('status') || 'pending',
+    };
+    const editId = els.scheduleForm.dataset.editId;
+    try {
+      let res;
+      if (editId) {
+        res = await api('PUT', `/api/schedules/${editId}`, payload);
+      } else {
+        res = await api('POST', '/api/schedules', payload);
+      }
+      closeScheduleModal();
+      await refreshAll();
+      if (res && res.cascade) reportCascade(res.cascade);
+    } catch (err) {
+      alert(`저장 실패: ${mapServerError(err)}`);
+    }
+  });
 });
 
 // Schedule edit/delete via row actions + status pill click cycles status.
@@ -2232,7 +2360,7 @@ els.scheduleRows.addEventListener('click', async (e) => {
       ]);
       renderSchedules();
     } catch (err) {
-      alert(`상태 변경 실패: ${err.message}`);
+      alert(`상태 변경 실패: ${mapServerError(err)}`);
     }
     return;
   }
@@ -2459,18 +2587,19 @@ function openDependencyCreate() {
     .then(() => {
       const form = els.dependencyCreateForm;
       form.reset();
-      // Default 현재 = current category (if available).
-      form.current_type.value = 'category';
+      // H-12: 카테고리 의존성 disable. "현재" 는 schedule 만 가능. category
+      // 기본값 + selectedCategoryId 프리셋은 비활성화.
+      form.current_type.value = 'schedule';
       form.pred_type.value = '';
       form.succ_type.value = '';
       form.link_type.value = 'strong';
       form.on_delay.value = 'auto_shift';
       depCreateRefresh();
-      // Pre-select current category.
-      if (state.selectedCategoryId) {
-        form.current_id.value = String(state.selectedCategoryId);
-        depCreateRefresh();
-      }
+      // (H-12) 이전: 선택된 카테고리를 "현재"로 자동 프리셋 — 이제 schedule 만이라 의미 없음.
+      // if (state.selectedCategoryId) {
+      //   form.current_id.value = String(state.selectedCategoryId);
+      //   depCreateRefresh();
+      // }
       els.dependencyCreateModal.classList.remove('hidden');
     })
     .catch(() => {
@@ -2487,46 +2616,35 @@ function openDependencyCreate() {
 
 els.dependencyCreateForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const form = els.dependencyCreateForm;
-  const cur = readSide(form, 'current');
-  const pred = readSide(form, 'pred');
-  const succ = readSide(form, 'succ');
-  if (!cur) {
-    alert('"현재" 를 선택해주세요.');
-    return;
-  }
-  if (!pred && !succ) {
-    alert('선행 또는 후행 중 최소 한 쪽은 선택해주세요.');
-    return;
-  }
-  const payload = {
-    current: cur,
-    pred,
-    succ,
-    link_type: form.link_type.value,
-    on_delay: form.on_delay.value,
-  };
-  try {
-    await api('POST', '/api/dependencies/triple', payload);
-    els.dependencyCreateModal.classList.add('hidden');
-    await refreshAll();
-  } catch (err) {
-    const map = {
-      cycle_detected: '순환 의존이 발생합니다.',
-      self_loop: '자기 자신을 가리킬 수 없습니다.',
-      container_cycle: '카테고리와 그 안의 스케줄 사이에는 의존을 걸 수 없습니다.',
-      pred_not_found: '선행 대상을 찾을 수 없습니다.',
-      succ_not_found: '후행 대상을 찾을 수 없습니다.',
-      current_not_found: '"현재" 대상을 찾을 수 없습니다.',
-      duplicate: '동일한 의존이 이미 존재합니다.',
-      no_edge: '선행 또는 후행 중 하나는 선택해야 합니다.',
-      invalid_current: '"현재" 입력이 올바르지 않습니다.',
-      invalid_link_type: '연결 유형이 올바르지 않습니다.',
-      invalid_on_delay: '충돌 시 동작값이 올바르지 않습니다.',
+  await withSubmitGuard(els.dependencyCreateForm, async () => {
+    const form = els.dependencyCreateForm;
+    const cur = readSide(form, 'current');
+    const pred = readSide(form, 'pred');
+    const succ = readSide(form, 'succ');
+    if (!cur) {
+      alert('"현재" 를 선택해주세요.');
+      return;
+    }
+    if (!pred && !succ) {
+      alert('선행 또는 후행 중 최소 한 쪽은 선택해주세요.');
+      return;
+    }
+    const payload = {
+      current: cur,
+      pred,
+      succ,
+      link_type: form.link_type.value,
+      on_delay: form.on_delay.value,
     };
-    const sideMsg = err.body && err.body.side ? ` (${err.body.side === 'pred' ? '선행→현재' : '현재→후행'} 엣지)` : '';
-    alert((map[err.message] || `저장 실패 (${err.message})`) + sideMsg);
-  }
+    try {
+      await api('POST', '/api/dependencies/triple', payload);
+      els.dependencyCreateModal.classList.add('hidden');
+      await refreshAll();
+    } catch (err) {
+      const sideMsg = err.body && err.body.side ? ` (${err.body.side === 'pred' ? '선행→현재' : '현재→후행'} 엣지)` : '';
+      alert(`${mapServerError(err)}${sideMsg}`);
+    }
+  });
 });
 
 els.dependencyForm.pred_type.addEventListener('change', (e) => {
@@ -2538,6 +2656,7 @@ els.dependencyForm.succ_type.addEventListener('change', (e) => {
 
 els.dependencyForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  await withSubmitGuard(els.dependencyForm, async () => {
   const fd = new FormData(els.dependencyForm);
   const payload = {
     pred_type: fd.get('pred_type'),
@@ -2557,21 +2676,9 @@ els.dependencyForm.addEventListener('submit', async (e) => {
     closeDependencyModal();
     await refreshAll();
   } catch (err) {
-    const map = {
-      cycle_detected: '순환 의존이 발생합니다.',
-      self_loop: '자기 자신을 가리킬 수 없습니다.',
-      container_cycle: '카테고리와 그 안의 스케줄 사이에는 의존을 걸 수 없습니다.',
-      pred_not_found: '선행 대상을 찾을 수 없습니다. 방금 만든 카테고리/스케줄이라면 새로고침 후 다시 시도해주세요.',
-      succ_not_found: '후행 대상을 찾을 수 없습니다. 방금 만든 카테고리/스케줄이라면 새로고침 후 다시 시도해주세요.',
-      not_found: '편집 중이던 의존성이 이미 삭제된 것 같습니다. 페이지를 새로고침해주세요.',
-      duplicate: '동일한 의존이 이미 존재합니다.',
-      invalid_id: '선택된 항목의 ID 가 올바르지 않습니다.',
-      invalid_entity_type: '선행/후행 종류가 올바르지 않습니다.',
-      invalid_link_type: '연결 유형이 올바르지 않습니다.',
-      invalid_on_delay: '충돌 시 동작값이 올바르지 않습니다.',
-    };
-    alert(map[err.message] || `저장 실패 (${err.message})`);
+    alert(`저장 실패: ${mapServerError(err)}`);
   }
+  });
 });
 
 els.dependencyRows.addEventListener('click', async (e) => {
@@ -2587,7 +2694,7 @@ els.dependencyRows.addEventListener('click', async (e) => {
       await loadDependencies();
       renderDependencies();
     } catch (err) {
-      alert(`유형 변경 실패: ${err.message}`);
+      alert(`유형 변경 실패: ${mapServerError(err)}`);
     }
     return;
   }
@@ -2602,7 +2709,7 @@ els.dependencyRows.addEventListener('click', async (e) => {
       await loadDependencies();
       renderDependencies();
     } catch (err) {
-      alert(`충돌 시 동작 변경 실패: ${err.message}`);
+      alert(`충돌 시 동작 변경 실패: ${mapServerError(err)}`);
     }
     return;
   }
@@ -2821,7 +2928,7 @@ function openReportModal(report) {
       hideReportMetaBox();
     }
   } else {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     els.reportForm.report_date.value = today;
     const initial = state.selectedCategoryId ? [state.selectedCategoryId] : [];
     renderReportCategoryChecks(initial);
@@ -2945,7 +3052,7 @@ els.reportMetaBox.addEventListener('click', async (e) => {
     }
     renderSchedules();
   } catch (err) {
-    alert(`상태 변경 실패: ${err.message}`);
+    alert(`상태 변경 실패: ${mapServerError(err)}`);
   }
 });
 
@@ -2974,43 +3081,45 @@ els.reportRows.addEventListener('click', async (e) => {
 
 els.reportForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const fd = new FormData(els.reportForm);
-  const payload = {
-    report_date: fd.get('report_date'),
-    body: fd.get('body') || '',
-    category_ids: selectedCategoryIdsFromForm(),
-  };
-  // When the modal was opened from a Gantt bar click, persist the
-  // (report ↔ schedule) link so the same (date, schedule) opens this
-  // report next time.
-  if (state.reportLinkedSchedule) {
-    payload.schedule_ids = [state.reportLinkedSchedule.schedule.id];
-  }
-  try {
-    if (state.editingReportId) {
-      await api('PUT', `/api/reports/${state.editingReportId}`, payload);
-    } else {
-      const created = await api('POST', '/api/reports', payload);
-      // Flush pending uploads now that we have a report id.
-      for (const pa of state.pendingAttachments) {
-        try {
-          const f = new FormData();
-          f.append('file', pa.file);
-          const res = await fetch(
-            `/api/reports/${created.id}/attachments/upload`,
-            { method: 'POST', body: f }
-          );
-          if (!res.ok) console.error('Pending upload failed:', pa.display_name);
-        } catch (err) {
-          console.error('Pending attachment error:', err);
+  await withSubmitGuard(els.reportForm, async () => {
+    const fd = new FormData(els.reportForm);
+    const payload = {
+      report_date: fd.get('report_date'),
+      body: fd.get('body') || '',
+      category_ids: selectedCategoryIdsFromForm(),
+    };
+    // When the modal was opened from a Gantt bar click, persist the
+    // (report ↔ schedule) link so the same (date, schedule) opens this
+    // report next time.
+    if (state.reportLinkedSchedule) {
+      payload.schedule_ids = [state.reportLinkedSchedule.schedule.id];
+    }
+    try {
+      if (state.editingReportId) {
+        await api('PUT', `/api/reports/${state.editingReportId}`, payload);
+      } else {
+        const created = await api('POST', '/api/reports', payload);
+        // Flush pending uploads now that we have a report id.
+        for (const pa of state.pendingAttachments) {
+          try {
+            const f = new FormData();
+            f.append('file', pa.file);
+            const res = await fetch(
+              `/api/reports/${created.id}/attachments/upload`,
+              { method: 'POST', body: f }
+            );
+            if (!res.ok) console.error('Pending upload failed:', pa.display_name);
+          } catch (err) {
+            console.error('Pending attachment error:', err);
+          }
         }
       }
+      closeReportModal();
+      await refreshReportsForScope();
+    } catch (err) {
+      alert(`저장 실패: ${mapServerError(err)}`);
     }
-    closeReportModal();
-    await refreshReportsForScope();
-  } catch (err) {
-    alert(`저장 실패: ${err.message}`);
-  }
+  });
 });
 
 // Refresh reports for the current scope (per-category panel OR all-reports view).
@@ -3051,7 +3160,7 @@ els.attachmentFileInput.addEventListener('change', async (e) => {
       e.target.value = '';
       await reloadEditingReport();
     } catch (err) {
-      alert(`업로드 실패: ${err.message}`);
+      alert(`업로드 실패: ${mapServerError(err)}`);
     }
   } else {
     // New report (no id yet): buffer until report is saved.
@@ -3797,7 +3906,9 @@ function makeTableResizable(tableEl) {
     handle.className = 'col-resize-handle';
     th.appendChild(handle);
 
-    handle.addEventListener('mousedown', (e) => {
+    // H-18: pointer events.
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       const startX = e.clientX;
@@ -3810,14 +3921,17 @@ function makeTableResizable(tableEl) {
         th.style.width = newWidth + 'px';
       }
       function onUp() {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
         handle.classList.remove('dragging');
         const widths = ths.map((t) => t.offsetWidth);
         saveColWidths(tableId, widths);
       }
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      try { handle.setPointerCapture(e.pointerId); } catch {}
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
     });
   });
 }
@@ -3957,9 +4071,13 @@ function applyTeamState(data) {
   renderTeamStatusModal();
 
   if (data.mode === 'ON' && !state.team.pollTimer) {
-    state.team.pollTimer = setInterval(loadTeamState, 5000);
+    // H-13: registerPoll 사용 — 탭 백그라운드 시 자동 정지.
+    state.team.pollTimer = registerPoll(loadTeamState, 5000);
   } else if (data.mode === 'OFF' && state.team.pollTimer) {
-    clearInterval(state.team.pollTimer);
+    state.team.pollTimer.stop();
+    // _polls 배열에 그대로 두면 visibilitychange 시 다시 살아남 — 제거.
+    const idx = _polls.indexOf(state.team.pollTimer);
+    if (idx >= 0) _polls.splice(idx, 1);
     state.team.pollTimer = null;
   }
 
@@ -4223,7 +4341,7 @@ function startTeamEventStream() {
     // EventSource auto-reconnects on transient errors, so no error handler.
   } catch (e) {
     console.warn('[team] SSE 연결 실패 — 폴링 폴백:', e && e.message);
-    setInterval(pollTeamEvents, 5000);
+    registerPoll(pollTeamEvents, 5000); // H-13
     pollTeamEvents();
   }
 }
@@ -5414,7 +5532,7 @@ async function refreshInboundPendingBadge() {
 // Initial paint + periodic refresh as a safety net (events should already
 // keep it accurate, but a 30s tick covers SSE drops / clock skew).
 refreshInboundPendingBadge();
-setInterval(refreshInboundPendingBadge, 30000);
+registerPoll(refreshInboundPendingBadge, 30000); // H-13
 
 // ───── Inbound (요청받은 업무) list + detail ─────
 
@@ -5610,7 +5728,7 @@ async function applyScheduleScope(r) {
   await loadCategoriesIntoSchedSelect();
 
   const sched = r.schedule;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   // Deadline is stored as "YYYY-MM-DD HH:MM" — pull just the date part.
   const deadlineDate = (r.deadline || '').slice(0, 10);
   if (sched) {

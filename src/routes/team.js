@@ -19,6 +19,22 @@ function clientIp(req) {
   return ip;
 }
 
+// Local-UI 전용 엔드포인트 가드 (C-3). server.js 의 WRITE_ALLOWLIST 와 동일
+// 의미. team router 가 IP write-guard 보다 앞에 마운트되어 있으므로 여기서
+// 직접 차단해야 LAN 의 비-사용자가 peer 목록을 조작하지 못함.
+const WRITE_ALLOWLIST = new Set([
+  '10.115.41.127',
+  '10.115.33.155',
+  '10.115.147.185',
+  '192.168.0.16',
+  '127.0.0.1',
+  '::1',
+]);
+function localOnly(req, res, next) {
+  if (WRITE_ALLOWLIST.has(clientIp(req))) return next();
+  return res.status(403).json({ error: 'forbidden_local_only', ip: clientIp(req) });
+}
+
 const insertCommentStmt = db.prepare(
   `INSERT INTO report_comments (report_id, author, body) VALUES (?, ?, ?)`
 );
@@ -65,14 +81,19 @@ const insertTaskCommentStmt = db.prepare(
 function authenticateAndIdentify(req) {
   const ip = clientIp(req);
   const isLoopback = ip === '127.0.0.1' || ip === '::1';
-  const isPeerHost = peerWatcher.getPeers().some((p) => p.host === ip);
-  if (!isLoopback && !isPeerHost) {
+  const peerAtIp = peerWatcher.getPeers().find((p) => p.host === ip);
+  if (!isLoopback && !peerAtIp) {
     return { ok: false, error: 'not_team_member', ip };
   }
   const origin = (req.body && typeof req.body.origin === 'string')
     ? req.body.origin.trim()
     : '';
   if (!origin) return { ok: false, error: 'missing_origin', ip };
+  // C-4: 외부 IP 의 origin 위조 차단. loopback 은 OS 라우팅 변동(127.0.0.1/
+  // ::1/LAN 어느 쪽으로 잡힐지 불확실)을 회피하기 위해 origin 신뢰 유지.
+  if (!isLoopback && peerAtIp.name !== origin) {
+    return { ok: false, error: 'origin_mismatch', ip, expected: peerAtIp.name };
+  }
   return { ok: true, name: origin, ip };
 }
 
@@ -270,7 +291,7 @@ router.get('/merged', (req, res) => {
   res.json({ mode: 'ON', lastSyncAt: cache.getLastSyncAt(), ...merged });
 });
 
-router.post('/toggle', async (req, res) => {
+router.post('/toggle', localOnly, async (req, res) => {
   const target = cache.getMode() === 'ON' ? 'OFF' : 'ON';
   cache.setMode(target);
   if (target === 'ON') {
@@ -282,7 +303,7 @@ router.post('/toggle', async (req, res) => {
   res.json({ mode: target });
 });
 
-router.post('/sync', async (req, res) => {
+router.post('/sync', localOnly, async (req, res) => {
   if (cache.getMode() !== 'ON') {
     return res.status(409).json({ error: 'team_mode_off' });
   }
@@ -294,7 +315,7 @@ router.post('/sync', async (req, res) => {
 // All of the below mutate peerStore. peerBroadcaster watches peerStore and
 // fans out add/edit/remove to other peers automatically.
 
-router.post('/peer-add', (req, res) => {
+router.post('/peer-add', localOnly, (req, res) => {
   const e = {
     name: (req.body && req.body.name || '').trim(),
     host: (req.body && req.body.host || '').trim(),
@@ -315,7 +336,7 @@ router.post('/peer-add', (req, res) => {
   res.json({ ok: true, peer: e });
 });
 
-router.post('/peer-edit', (req, res) => {
+router.post('/peer-edit', localOnly, (req, res) => {
   const original = (req.body && req.body.originalName || '').trim();
   const e = {
     name: (req.body && req.body.name || '').trim(),
@@ -347,7 +368,7 @@ router.post('/peer-edit', (req, res) => {
   res.json({ ok: true, peer: e });
 });
 
-router.post('/peer-remove', (req, res) => {
+router.post('/peer-remove', localOnly, (req, res) => {
   const name = (req.body && req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'missing_name' });
   const target = peerWatcher.getPeers().find((p) => p.name === name);
@@ -696,7 +717,7 @@ router.post('/task-statuses-for-sender', tokenAuth, express.json(), (req, res) =
   res.json({ statuses: out });
 });
 
-router.post('/peer-announce', async (req, res) => {
+router.post('/peer-announce', localOnly, async (req, res) => {
   try {
     const result = await broadcaster.announceCurrentList();
     res.json({ ok: true, ...result });
@@ -705,7 +726,7 @@ router.post('/peer-announce', async (req, res) => {
   }
 });
 
-router.post('/peer-bulk-import', (req, res) => {
+router.post('/peer-bulk-import', localOnly, (req, res) => {
   // Accepts either { csv: "<text>" } or { entries: [...] }, plus
   // mode: 'merge' (default) | 'replace'.
   const body = req.body || {};

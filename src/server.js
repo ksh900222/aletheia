@@ -1,7 +1,7 @@
 const path = require('path');
 const express = require('express');
 
-require('./db');
+const db = require('./db');
 
 const categoriesRouter = require('./routes/categories');
 const schedulesRouter = require('./routes/schedules');
@@ -15,6 +15,7 @@ const teamSettings = require('./team/settings');
 const peerWatcher = require('./team/peerWatcher');
 const peerBroadcaster = require('./team/peerBroadcaster');
 const teamRouter = require('./routes/team');
+const backup = require('./backup');
 
 const app = express();
 // PORT — defaults to 3000. Override with PORT=4000 node src/server.js.
@@ -50,6 +51,14 @@ function clientIp(req) {
 
 function canWrite(req) {
   return WRITE_ALLOWLIST.has(clientIp(req));
+}
+
+// 첨부 다운로드 권한: 본인 PC(WRITE_ALLOWLIST) 또는 등록된 team peer 만 허용.
+// LAN 의 비-사용자(curl, 일반 LAN PC)는 차단.
+function canRead(req) {
+  if (canWrite(req)) return true;
+  const ip = clientIp(req);
+  return peerWatcher.getPeers().some((p) => p.host === ip);
 }
 
 // Identity endpoint — the frontend calls this on boot to decide whether to
@@ -95,8 +104,14 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-// Serve uploaded attachments at /uploads/<filename>.
-app.use('/uploads', express.static(attachmentsRouter.UPLOAD_DIR));
+// Serve uploaded attachments at /uploads/<filename>. Restricted to local
+// machine + registered team peers (canRead) — non-program LAN hosts denied.
+app.use('/uploads', (req, res, next) => {
+  if (!canRead(req)) {
+    return res.status(403).json({ error: 'forbidden_read_from_ip', ip: clientIp(req) });
+  }
+  next();
+}, express.static(attachmentsRouter.UPLOAD_DIR));
 
 app.use(express.static(path.resolve(__dirname, '..', 'public')));
 
@@ -123,6 +138,25 @@ setImmediate(() => {
   peerBroadcaster.announceCurrentList()
     .catch((e) => console.warn('[team] boot announce 오류:', e.message));
 });
+
+// 4시간 주기 자동 백업 (보관 72시간) — C-7 정책.
+backup.start();
+
+// Graceful shutdown — WAL checkpoint 후 DB close. WAL 파일 비워두면 다음 부팅 빠름.
+function shutdown(signal) {
+  console.log(`[server] ${signal} 수신 — 정리 중...`);
+  try { backup.stop(); } catch {}
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.close();
+    console.log('[server] WAL checkpoint + DB close 완료');
+  } catch (e) {
+    console.error('[server] shutdown 중 오류:', e.message);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
 
 app.listen(PORT, HOST, () => {
   console.log(`project_planner listening on http://${HOST}:${PORT}`);

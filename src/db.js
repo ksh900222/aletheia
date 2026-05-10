@@ -162,11 +162,26 @@ db.exec(`
 // be tied to (date, schedule). Per user decision: wipe existing reports rather
 // than try to back-fill links. Attachment file blobs in uploads/ are kept on
 // disk (no orphan cleanup) — only DB rows are removed via CASCADE.
+//
+// 안전장치: 마이그레이션이 reports 를 wipe 하기 전에 자동으로 DB 백업본을
+// 만든다. 운영자가 옛 백업을 복구한 경우(=마커 없음 + 보고서 다수)에도
+// 이 백업본 덕분에 데이터 손실 직전 상태로 되돌릴 수 있다.
 try {
   const already = db
     .prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`)
     .get('reports_schedule_link_v1');
   if (!already) {
+    const reportCount = db.prepare(`SELECT COUNT(*) AS n FROM reports`).get().n;
+    if (reportCount > 0) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = `${DB_PATH}.backup-${ts}`;
+      try {
+        fs.copyFileSync(DB_PATH, backupPath);
+        console.warn(`[db] reports_schedule_link_v1 마이그레이션 직전 백업 생성: ${backupPath} (보고서 ${reportCount}건)`);
+      } catch (e) {
+        console.error('[db] 마이그레이션 직전 백업 실패 (계속 진행):', e.message);
+      }
+    }
     console.log('[db] migrating reports: wiping legacy reports for new (date+schedule) model');
     db.transaction(() => {
       db.prepare(`DELETE FROM reports`).run();
