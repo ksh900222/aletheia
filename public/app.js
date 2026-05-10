@@ -781,21 +781,32 @@ function myCommentBadgeHtml(count) {
   return ` <span class="my-comment-badge" title="내가 남긴 코멘트가 있습니다">내 코멘트 ${count}</span>`;
 }
 
-// Number of UNREAD comments received on this report. Only meaningful for
-// own reports — team-owned reports' acknowledgement is the other peer's
-// concern, not visible/relevant here.
-function countUnreadReceivedComments(r) {
-  if (!r || r.owner) return 0; // team-owned: skip
-  if (!Array.isArray(r.comments)) return 0;
+// Counts of comments RECEIVED on this report from other team members.
+// Only meaningful for own reports; team-owned reports' ack state is the
+// other peer's concern.
+//
+// Returns { total, acked } so the badge can show "받은 N / 확인 n" — the
+// user wanted to see the whole picture, not just unread.
+function countReceivedComments(r) {
+  const empty = { total: 0, acked: 0 };
+  if (!r || r.owner) return empty;
+  if (!Array.isArray(r.comments)) return empty;
   const selfName = (state.team.self && state.team.self.name) || '';
-  return r.comments.filter(
-    (c) => !c.acknowledged && c.author !== selfName
-  ).length;
+  let total = 0, acked = 0;
+  for (const c of r.comments) {
+    if (c.author === selfName) continue;
+    total += 1;
+    if (c.acknowledged) acked += 1;
+  }
+  return { total, acked };
 }
 
-function receivedCommentBadgeHtml(count) {
-  if (!count || count <= 0) return '';
-  return ` <span class="received-comment-badge" title="확인하지 않은 받은 코멘트">받은 코멘트 ${count}</span>`;
+function receivedCommentBadgeHtml(total, acked) {
+  if (!total || total <= 0) return '';
+  const allAcked = acked >= total;
+  // Different visual when everything's been read (drops the warning vibe).
+  const cls = allAcked ? 'received-comment-badge all-acked' : 'received-comment-badge';
+  return ` <span class="${cls}" title="받은 코멘트 ${total}개 · 확인 ${acked}개">받은 코멘트 ${total} / 확인 ${acked}</span>`;
 }
 
 // "2025-05-06" → "2025년 05월 06일 (수)". UTC base avoids local-tz drift
@@ -3274,13 +3285,15 @@ function renderAllReportsView() {
 
     // OFF mode (default — date 그룹) — append indicators next to the
     // schedule pills on this specific report:
-    //   "내 코멘트 N"   : 내가 남긴 코멘트 수 (팀 리포트인 경우)
-    //   "받은 코멘트 N" : 미확인 받은 코멘트 수 (본인 리포트인 경우)
+    //   "내 코멘트 N"          : 내가 남긴 코멘트 수 (팀 리포트인 경우)
+    //   "받은 코멘트 N / 확인 n": 받은 코멘트 누적·확인 수 (본인 리포트)
     // ON mode 에서는 같은 정보가 날짜 헤더에 이미 있으므로 여기선 숨김.
     const offModeMyCount = state.allReportsBySchedule ? 0 : countMyComments(r);
-    const offModeRecvCount = state.allReportsBySchedule ? 0 : countUnreadReceivedComments(r);
+    const offModeRecv = state.allReportsBySchedule
+      ? { total: 0, acked: 0 }
+      : countReceivedComments(r);
     const offModeMyBadge = myCommentBadgeHtml(offModeMyCount);
-    const offModeRecvBadge = receivedCommentBadgeHtml(offModeRecvCount);
+    const offModeRecvBadge = receivedCommentBadgeHtml(offModeRecv.total, offModeRecv.acked);
     const offModeBadges = offModeMyBadge + offModeRecvBadge;
     const schedulesHtml = (schedPills || offModeBadges)
       ? `<div class="report-item-schedules">${schedPills}${offModeBadges}</div>`
@@ -3313,19 +3326,22 @@ function renderAllReportsView() {
       const dateHead = document.createElement('h4');
       dateHead.textContent = formatDateKo(date);
       // ON mode (스케줄별 그룹) — append indicators to date head:
-      //   "내 코멘트 N"     : 내가 다른 팀원 리포트에 남긴 코멘트 수
-      //   "받은 코멘트 N"   : 본인 리포트에 와있는 미확인 코멘트 수
+      //   "내 코멘트 N"          : 내가 다른 팀원 리포트에 남긴 코멘트 수
+      //   "받은 코멘트 N / 확인 n" : 본인 리포트에 받은 코멘트 누적·확인 수
       if (state.allReportsBySchedule) {
         const dayReports0 = byDate.get(date);
         const myCount = dayReports0.reduce((s, r) => s + countMyComments(r), 0);
-        const recvCount = dayReports0.reduce(
-          (s, r) => s + countUnreadReceivedComments(r), 0
-        );
+        let recvTotal = 0, recvAcked = 0;
+        for (const r of dayReports0) {
+          const { total, acked } = countReceivedComments(r);
+          recvTotal += total;
+          recvAcked += acked;
+        }
         if (myCount > 0) {
           dateHead.insertAdjacentHTML('beforeend', myCommentBadgeHtml(myCount));
         }
-        if (recvCount > 0) {
-          dateHead.insertAdjacentHTML('beforeend', receivedCommentBadgeHtml(recvCount));
+        if (recvTotal > 0) {
+          dateHead.insertAdjacentHTML('beforeend', receivedCommentBadgeHtml(recvTotal, recvAcked));
         }
       }
       dateGroup.appendChild(dateHead);
