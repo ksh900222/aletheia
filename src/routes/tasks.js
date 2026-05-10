@@ -40,10 +40,25 @@ const getAttsForReqStmt = db.prepare(
   `SELECT id, kind, path, display_name, size_bytes, created_at
      FROM task_request_attachments WHERE task_request_id = ? ORDER BY id ASC`
 );
+const getCommentsForReqStmt = db.prepare(
+  `SELECT id, task_request_id, author, body, created_at
+     FROM task_request_comments WHERE task_request_id = ? ORDER BY id ASC`
+);
+const getReqByIdStmt = db.prepare(`SELECT * FROM task_requests WHERE id = ?`);
+const updateReqStatusStmt = db.prepare(
+  `UPDATE task_requests SET status = ? WHERE id = ?`
+);
+const insertCommentStmt = db.prepare(
+  `INSERT INTO task_request_comments (task_request_id, author, body) VALUES (?, ?, ?)`
+);
 
 function decorate(req) {
   if (!req) return req;
-  return { ...req, attachments: getAttsForReqStmt.all(req.id) };
+  return {
+    ...req,
+    attachments: getAttsForReqStmt.all(req.id),
+    comments: getCommentsForReqStmt.all(req.id),
+  };
 }
 
 // POST /api/tasks/request
@@ -130,10 +145,75 @@ router.get('/outbound', (req, res) => {
   res.json(rows);
 });
 
-// GET /api/tasks/inbound — receiver's view (used by future "요청받은 업무").
+// GET /api/tasks/inbound — receiver's view of incoming requests.
 router.get('/inbound', (req, res) => {
   const rows = listInboundStmt.all().map(decorate);
   res.json(rows);
+});
+
+// GET /api/tasks/:id — single decorated row (any direction).
+router.get('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid_id' });
+  const row = getReqByIdStmt.get(id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  res.json(decorate(row));
+});
+
+// POST /api/tasks/:id/respond — recipient's accept / adjust / reject action.
+// 조정 must include a comment body; accept / reject can omit it. The status
+// is mirrored back to the sender via /api/team/task-response-in, and the
+// comment (if any) is replicated to the sender's matching outbound row.
+router.post('/:id/respond', express.json(), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid_id' });
+  const row = getReqByIdStmt.get(id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  if (row.direction !== 'inbound') {
+    return res.status(400).json({ error: 'not_inbound' });
+  }
+  const action = String(req.body && req.body.action || '');
+  const STATUS_MAP = { accept: 'accepted', adjust: 'adjusted', reject: 'rejected' };
+  const newStatus = STATUS_MAP[action];
+  if (!newStatus) return res.status(400).json({ error: 'invalid_action' });
+  const body = (req.body && typeof req.body.body === 'string')
+    ? req.body.body.trim()
+    : '';
+  if (action === 'adjust' && !body) {
+    return res.status(400).json({ error: 'body_required_for_adjust' });
+  }
+  if (body.length > 10000) return res.status(400).json({ error: 'body_too_long' });
+
+  const cfg = settings.get();
+  const me = cfg.self.name;
+
+  db.transaction(() => {
+    updateReqStatusStmt.run(newStatus, id);
+    if (body) insertCommentStmt.run(id, me, body);
+  })();
+
+  // Forward to sender so their outbound row updates too. row.sender is the
+  // peer name; row.group_id ties the matching outbound row.
+  const target = peerWatcher.getPeers().find((p) => p.name === row.sender);
+  if (target && cfg.sharedToken) {
+    const url = `http://${target.host}:${target.port}/api/team/task-response-in`;
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Team-Token': cfg.sharedToken,
+      },
+      body: JSON.stringify({
+        origin: me,
+        group_id: row.group_id,
+        status: newStatus,
+        comment: body || null,
+      }),
+      signal: AbortSignal.timeout(cfg.requestTimeoutMs || 5000),
+    }).catch((e) => console.warn(`[task] response forward → ${row.sender} 실패: ${e.message}`));
+  }
+
+  res.json({ ok: true, id, status: newStatus });
 });
 
 async function forwardTaskRequests(targets, payload) {

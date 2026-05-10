@@ -1509,10 +1509,10 @@ body.readonly .modal select {
 .task-request-launcher:hover { background: var(--primary-hover); }
 .task-request-launcher:active { transform: translateY(1px); }
 
-.modal-card.task-choice-card { width: 460px; }
+.modal-card.task-choice-card { width: 580px; }
 .task-choice-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 10px;
   margin: 12px 0 16px;
 }
@@ -1555,9 +1555,12 @@ body.readonly .modal select {
   gap: 6px;
 }
 .task-request-recipients {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 4px 12px;
+  /* flex-wrap → 라벨이 텍스트 길이에 맞춰 자연스럽게 줄바뀜.
+     이전 grid 는 minmax(160px) 로 짧은 이름에 빈 공간 + 긴 이름 시
+     중간이 어긋나 어색했음. */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   max-height: 140px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -1566,19 +1569,40 @@ body.readonly .modal select {
   background: var(--panel-2);
 }
 .task-request-recipients label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 3px 0;
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .task-request-recipients .empty {
-  grid-column: 1 / -1;
+  width: 100%;
   color: var(--muted);
   font-size: 12px;
   padding: 6px 0;
 }
+/* 기한 행 — input/select 높이를 줄여 시각 비중 낮춤. 시·분은 select 로
+   강제 24h 표기 (브라우저 locale 무관). 모달 base 의 .modal-card input
+   { width:100% } 가 date 까지 100%로 늘려 row 를 모두 차지하게 만들었던
+   문제 fix — 모든 자식에 flex 0 0 auto + 명시적 width 부여. */
+.task-request-deadline-row { align-items: center; gap: 6px; }
+.task-request-deadline-row > * { flex: 0 0 auto; }
+.task-request-section .row input[type="date"],
+.task-request-section .row input[type="time"],
+.task-request-section .row select {
+  padding: 4px 8px;
+  font-size: 12.5px;
+  height: 28px;
+  width: auto;
+  margin-top: 0;
+}
+.task-request-section .row input[type="date"] { width: 150px; }
+.task-request-section .row select { width: 64px; }
+.task-deadline-sep { color: var(--muted); font-weight: 600; }
+.task-request-section .row .btn { padding: 4px 12px; font-size: 12px; }
+
 #task-request-body {
   width: 100%;
   background: var(--panel-2);
@@ -1590,6 +1614,7 @@ body.readonly .modal select {
   font-size: 13px;
   resize: vertical;
   box-sizing: border-box;
+  min-height: 220px;
 }
 .task-request-attach-row {
   display: flex;
@@ -1625,6 +1650,215 @@ body.readonly .modal select {
   line-height: 1;
 }
 .task-request-file-list .remove-file:hover { color: var(--danger); }
+
+/* Outbound (요청한 업무) list */
+.modal-card.task-outbound-card { width: 720px; max-width: 96vw; max-height: 80vh; display: flex; flex-direction: column; }
+.task-outbound-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0 14px;
+  min-height: 120px;
+}
+.task-outbound-list .empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px 0;
+  font-size: 13px;
+}
+.task-outbound-item {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.task-outbound-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.task-outbound-item-time { font-weight: 500; }
+.task-outbound-item-deadline {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--warning);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.task-outbound-item-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.task-outbound-recipient-pill {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.task-outbound-item-body {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.task-outbound-item-attachments {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.task-outbound-item-attachments .att-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+/* Status-driven right border on outbound items so the requester can see
+   recipient's response at a glance. Pending = no special color. */
+.task-outbound-item.status-pending  { border-right: 4px solid var(--border); }
+.task-outbound-item.status-accepted { border-right: 4px solid var(--success); }
+.task-outbound-item.status-adjusted { border-right: 4px solid var(--warning); }
+.task-outbound-item.status-rejected { border-right: 4px solid var(--danger); }
+
+/* Inbound list — table layout (요청자 / 본문 / 기한 / 상태) */
+.task-inbound-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: 6px 0 14px;
+}
+.task-inbound-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.task-inbound-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.task-inbound-table tr:last-child td { border-bottom: none; }
+.task-inbound-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.task-inbound-table tbody tr:hover { background: var(--panel-2); }
+.task-inbound-body-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  max-width: 100%;
+}
+
+/* Status pill (used in inbound table + detail header) */
+.task-status-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+.task-status-badge[data-status="pending"]  { background: var(--panel-3); color: var(--muted); border: 1px solid var(--border); }
+.task-status-badge[data-status="accepted"] { background: var(--success-soft); color: var(--success); }
+.task-status-badge[data-status="adjusted"] { background: var(--warning-soft); color: var(--warning); }
+.task-status-badge[data-status="rejected"] { background: var(--danger-soft);  color: var(--danger); }
+.task-status-badge:empty { display: none; }
+
+/* Detail modal — same pattern as report-modal: left content, right comments. */
+.modal-card.task-detail-card { width: 1064px; max-width: 96vw; max-height: 86vh; }
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: 560px 1fr;
+  gap: 22px;
+}
+.task-detail-left { min-width: 0; }
+.task-detail-right {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.task-detail-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 18px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.task-detail-meta > div { grid-column: 1 / -1; }
+.task-detail-meta > div > .muted {
+  display: inline-block;
+  min-width: 60px;
+}
+.task-detail-body {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 50vh;
+  min-height: 120px;
+}
+.task-detail-attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.task-detail-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.task-action-accept {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: rgba(74, 222, 128, 0.45);
+}
+.task-action-accept:hover { background: var(--success); color: #0a1f10; }
+.task-action-adjust {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: rgba(245, 165, 36, 0.45);
+}
+.task-action-adjust:hover { background: var(--warning); color: #1f1305; }
+.task-action-reject {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: rgba(239, 107, 107, 0.45);
+}
+.task-action-reject:hover { background: var(--danger); color: #1f0a0a; }
 .team-report-viewer-meta {
   display: grid;
   grid-template-columns: auto auto;

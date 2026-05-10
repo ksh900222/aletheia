@@ -475,22 +475,94 @@
     </div>
   </div>
 
-  <!-- Task request — choice modal (요청한 업무 / 요청받은 업무) -->
+  <!-- Task request — choice modal (요청할 / 요청한 / 요청받은) -->
   <div id="task-choice-modal" class="modal hidden">
     <div class="modal-card task-choice-card">
       <h3>업무 요청</h3>
       <p class="muted" style="font-size:12px; margin:0 0 16px;">선택해주세요.</p>
       <div class="task-choice-grid">
+        <button type="button" id="task-choice-compose" class="task-choice-btn">
+          <div class="task-choice-title">요청할 업무</div>
+          <div class="task-choice-desc">새 업무를 요청 작성</div>
+        </button>
         <button type="button" id="task-choice-outbound" class="task-choice-btn">
           <div class="task-choice-title">요청한 업무</div>
-          <div class="task-choice-desc">팀원에게 업무를 요청합니다</div>
+          <div class="task-choice-desc">내가 보낸 요청 보기</div>
         </button>
-        <button type="button" id="task-choice-inbound" class="task-choice-btn" disabled title="추후 진행 예정">
+        <button type="button" id="task-choice-inbound" class="task-choice-btn">
           <div class="task-choice-title">요청받은 업무</div>
-          <div class="task-choice-desc">받은 업무 확인 (준비 중)</div>
+          <div class="task-choice-desc">받은 요청 처리 (수락/조정/거부)</div>
         </button>
       </div>
       <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — inbound list modal (요청자 / 본문 / 기한) -->
+  <div id="task-inbound-modal" class="modal hidden">
+    <div class="modal-card task-outbound-card">
+      <h3>요청받은 업무 <span id="task-inbound-count" class="muted" style="font-size:12px;"></span></h3>
+      <table class="task-inbound-table">
+        <thead>
+          <tr>
+            <th style="width:130px">요청자</th>
+            <th>본문</th>
+            <th style="width:170px">기한</th>
+            <th style="width:90px">상태</th>
+          </tr>
+        </thead>
+        <tbody id="task-inbound-rows"></tbody>
+      </table>
+      <div class="modal-actions">
+        <button type="button" id="task-inbound-refresh" class="btn">새로고침</button>
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — detail modal (좌 내용 / 우 코멘트 + 3 버튼) -->
+  <div id="task-detail-modal" class="modal hidden">
+    <div class="modal-card task-detail-card">
+      <h3>요청 상세 <span id="task-detail-status" class="task-status-badge"></span></h3>
+      <div class="task-detail-grid">
+        <div class="task-detail-left">
+          <div class="task-detail-meta">
+            <div><span class="muted">요청자</span> <span id="task-detail-sender"></span></div>
+            <div><span class="muted">기한</span> <span id="task-detail-deadline"></span></div>
+            <div><span class="muted">작성</span> <span id="task-detail-created"></span></div>
+          </div>
+          <div class="task-detail-body" id="task-detail-body"></div>
+          <div id="task-detail-attachments" class="task-detail-attachments"></div>
+        </div>
+        <div class="task-detail-right">
+          <h4 class="team-comments-title">코멘트 / 응답</h4>
+          <ul id="task-detail-comments-list" class="team-comments-list"></ul>
+          <div class="team-comments-form">
+            <textarea id="task-detail-comment-input" rows="3" placeholder="조정·거부 시 사유를 작성하세요"></textarea>
+            <p class="muted" style="font-size:11px; margin:0;">조정은 코멘트 필수. 수락·거부는 선택.</p>
+            <div class="task-detail-actions">
+              <button type="button" class="btn task-action-accept" data-action="accept">수락</button>
+              <button type="button" class="btn task-action-adjust" data-action="adjust">조정</button>
+              <button type="button" class="btn task-action-reject" data-action="reject">거부</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — outbound list modal (내가 보낸 요청들) -->
+  <div id="task-outbound-modal" class="modal hidden">
+    <div class="modal-card task-outbound-card">
+      <h3>요청한 업무 <span id="task-outbound-count" class="muted" style="font-size:12px;"></span></h3>
+      <div id="task-outbound-list" class="task-outbound-list"></div>
+      <div class="modal-actions">
+        <button type="button" id="task-outbound-refresh" class="btn">새로고침</button>
         <button type="button" class="btn" data-close>닫기</button>
       </div>
     </div>
@@ -513,14 +585,16 @@
 
       <div class="task-request-section">
         <label class="task-request-label" for="task-request-body">본문</label>
-        <textarea id="task-request-body" rows="6"></textarea>
+        <textarea id="task-request-body" rows="10"></textarea>
       </div>
 
       <div class="task-request-section">
         <label class="task-request-label">기한 <span class="muted" style="font-size:11px;">(선택)</span></label>
-        <div class="row">
+        <div class="row task-request-deadline-row">
           <input type="date" id="task-request-deadline-date" />
-          <input type="time" id="task-request-deadline-time" step="60" />
+          <select id="task-request-deadline-hour" aria-label="시"></select>
+          <span class="task-deadline-sep">:</span>
+          <select id="task-request-deadline-minute" aria-label="분"></select>
           <button type="button" id="task-request-deadline-clear" class="btn">기한 해제</button>
         </div>
       </div>
