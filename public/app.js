@@ -5336,11 +5336,11 @@ async function submitTaskRequest() {
   if (recipients.length === 0) { showToast('수신자를 한 명 이상 선택하세요', 'error'); return; }
   const body = (taskEls.body.value || '').trim();
   if (!body) { showToast('본문을 입력하세요', 'error'); return; }
-  let deadline = '';
   const d = (taskEls.deadlineDate.value || '').trim();
+  if (!d) { showToast('기한 지정 필요', 'error'); return; }
   const hh = (taskEls.deadlineHour && taskEls.deadlineHour.value) || '00';
   const mm = (taskEls.deadlineMinute && taskEls.deadlineMinute.value) || '00';
-  if (d) deadline = `${d} ${hh}:${mm}`;
+  const deadline = `${d} ${hh}:${mm}`;
 
   const fd = new FormData();
   fd.append('recipients', JSON.stringify(recipients));
