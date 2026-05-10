@@ -2817,10 +2817,12 @@ function renderReportMetaBox(schedule, date) {
     <div class="meta-row"><div class="meta-label">카테고리</div><div class="meta-value">${catPill}</div></div>
     <div class="meta-row"><div class="meta-label">스케줄</div><div class="meta-value"><b>${escapeHtml(schedule.title)}</b></div></div>
     <div class="meta-row"><div class="meta-label">기간</div><div class="meta-value">${schedule.planned_start} ~ ${schedule.planned_end} (${days}일)</div></div>
-    <div class="meta-row"><div class="meta-label">상태</div><div class="meta-value">${escapeHtml(status)}</div></div>
+    <div class="meta-row"><div class="meta-label">상태</div><div class="meta-value"><span class="status-pill ${escapeHtml(status)}" data-action="cycle-status" data-id="${schedule.id}" role="button" title="클릭하여 다음 상태로 변경">${escapeHtml(status)}</span></div></div>
     ${desc ? `<div class="meta-row"><div class="meta-label">설명</div><div class="meta-value">${escapeHtml(desc)}</div></div>` : ''}
     <div class="meta-row"><div class="meta-label">리포트 날짜</div><div class="meta-value"><b>${date}</b></div></div>
   `;
+  els.reportMetaBox.dataset.scheduleId = String(schedule.id);
+  els.reportMetaBox.dataset.reportDate = date || '';
   els.reportMetaBox.classList.remove('hidden');
 }
 
@@ -2839,6 +2841,40 @@ function closeReportModal() {
   state.reportLinkedSchedule = null;
   hideReportMetaBox();
 }
+
+// Status pill inside the report meta box: same cycle-on-click behavior as
+// the schedule list view — lets users flip status while writing a report
+// without leaving the modal. Single listener attached to the stable parent.
+els.reportMetaBox.addEventListener('click', async (e) => {
+  const pill = e.target.closest('.status-pill[data-action="cycle-status"]');
+  if (!pill) return;
+  const id = Number(pill.dataset.id);
+  const sched = state.allSchedules.find((s) => s.id === id);
+  if (!sched) return;
+  const oldStatus = sched.status;
+  const next = nextStatusOf(oldStatus);
+  try {
+    await api('PUT', `/api/schedules/${id}`, { status: next });
+    state.undoStack.push({
+      kind: 'schedule-update',
+      id,
+      before: { status: oldStatus },
+      after: { status: next },
+    });
+    state.redoStack = [];
+    await loadAllSchedules();
+    if (state.selectedCategoryId) await loadSchedules(state.selectedCategoryId);
+    const updated = state.allSchedules.find((s) => s.id === id);
+    if (updated) {
+      const date = els.reportMetaBox.dataset.reportDate || '';
+      renderReportMetaBox(updated, date);
+      if (state.reportLinkedSchedule) state.reportLinkedSchedule.schedule = updated;
+    }
+    renderSchedules();
+  } catch (err) {
+    alert(`상태 변경 실패: ${err.message}`);
+  }
+});
 
 els.reportRows.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
