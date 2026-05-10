@@ -768,6 +768,19 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// "2025-05-06" → "2025년 05월 06일 (수)". UTC base avoids local-tz drift
+// since report dates are stored as plain YYYY-MM-DD calendar dates.
+function formatDateKo(iso) {
+  if (!iso || typeof iso !== 'string') return iso || '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  const y = Number(m[1]), mm = Number(m[2]), dd = Number(m[3]);
+  const dow = ['일','월','화','수','목','금','토'][
+    new Date(Date.UTC(y, mm - 1, dd)).getUTCDay()
+  ];
+  return `${y}년 ${m[2]}월 ${m[3]}일 (${dow})`;
+}
+
 const GANTT_ROW_H = 36;
 const GANTT_BAR_TOP = 7;
 const GANTT_BAR_H = 22;
@@ -3248,7 +3261,7 @@ function renderAllReportsView() {
       const dateGroup = document.createElement('div');
       dateGroup.className = 'reports-date-group';
       const dateHead = document.createElement('h4');
-      dateHead.textContent = date;
+      dateHead.textContent = formatDateKo(date);
       dateGroup.appendChild(dateHead);
 
       const list = document.createElement('ol');
@@ -3464,7 +3477,116 @@ function openTeamReportViewer(r) {
     attEl.appendChild(empty);
   }
 
+  // Comments panel — track which report we're commenting on so the submit
+  // handler can route to the right peer and report.
+  m.dataset.owner = r.owner || '';
+  m.dataset.reportId = String(r.id);
+  renderTeamCommentsList(r.comments || []);
+  const inputEl = document.getElementById('team-comments-input');
+  if (inputEl) inputEl.value = '';
+
   m.classList.remove('hidden');
+}
+
+function renderTeamCommentsList(comments) {
+  const list = document.getElementById('team-comments-list');
+  const count = document.getElementById('team-comments-count');
+  if (!list) return;
+  list.innerHTML = '';
+  count.textContent = comments.length > 0 ? `(${comments.length})` : '';
+  if (comments.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = '아직 코멘트가 없습니다';
+    list.appendChild(li);
+    return;
+  }
+  // Render in chronological order (oldest first).
+  const ordered = comments.slice().sort((a, b) => {
+    const ka = a.created_at || '';
+    const kb = b.created_at || '';
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  for (const c of ordered) {
+    const li = document.createElement('li');
+    const head = document.createElement('div');
+    head.className = 'team-comment-head';
+    const author = document.createElement('span');
+    author.className = 'team-comment-author';
+    author.textContent = c.author || '?';
+    const ts = document.createElement('span');
+    ts.textContent = formatCommentTimestamp(c.created_at);
+    head.appendChild(author);
+    head.appendChild(ts);
+    const body = document.createElement('div');
+    body.className = 'team-comment-body';
+    body.textContent = c.body || '';
+    li.appendChild(head);
+    li.appendChild(body);
+    list.appendChild(li);
+  }
+}
+
+// SQLite stores datetime('now') in UTC as "YYYY-MM-DD HH:MM:SS". Convert to
+// local "YYYY-MM-DD HH:MM:SS" so users see when they actually saw it.
+function formatCommentTimestamp(s) {
+  if (!s) return '';
+  // Treat SQLite UTC strings ("YYYY-MM-DD HH:MM:SS") as UTC explicitly.
+  const iso = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)
+    ? s.replace(' ', 'T') + 'Z'
+    : s;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return s;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+async function submitTeamComment() {
+  const m = document.getElementById('team-report-viewer-modal');
+  const input = document.getElementById('team-comments-input');
+  const submitBtn = document.getElementById('team-comments-submit');
+  if (!m || !input) return;
+  const owner = m.dataset.owner || '';
+  const reportId = Number(m.dataset.reportId);
+  const body = input.value.trim();
+  if (!owner || !reportId) {
+    showToast('대상 리포트 정보 없음', 'error');
+    return;
+  }
+  if (!body) {
+    showToast('코멘트를 입력하세요', 'error');
+    return;
+  }
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const res = await fetch('/api/team/comment-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner, report_id: reportId, body }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail && typeof err.detail === 'string' ? err.detail
+                   : err.detail && err.detail.error ? err.detail.error
+                   : err.error || res.status;
+      showToast(`코멘트 전송 실패: ${detail}`, 'error');
+      return;
+    }
+    input.value = '';
+    showToast('코멘트가 전송되었습니다');
+    // Refresh merged data to pull A's new comment back into our view.
+    // Forces a /api/team/sync on our side then /merged refetch.
+    try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+    await loadTeamMerged();
+    const r = state.team.merged.reports.find(
+      (x) => x.id === reportId && x.owner === owner
+    );
+    if (r) renderTeamCommentsList(r.comments || []);
+  } catch (e) {
+    showToast(`코멘트 오류: ${e.message}`, 'error');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 // ---------- Resizable table columns ----------
@@ -3846,6 +3968,10 @@ function handleTeamEvent(ev) {
       .slice(0, 3)
       .join(' · ');
     showToast(`CSV 검증 실패 — ${errs}`, 'error', 6000);
+  } else if (ev.kind === 'comment_received') {
+    const author = ev.detail.author || '?';
+    const preview = ev.detail.bodyPreview || '';
+    showToast(`${author}이(가) 리포트에 코멘트를 남겼습니다: ${preview}`, 'info', 5000);
   }
 }
 
@@ -3879,6 +4005,11 @@ if (teamReportViewerModal) {
       teamReportViewerModal.classList.add('hidden');
     }
   });
+}
+
+const teamCommentsSubmitBtn = document.getElementById('team-comments-submit');
+if (teamCommentsSubmitBtn) {
+  teamCommentsSubmitBtn.addEventListener('click', submitTeamComment);
 }
 
 // ───── Team peer management modal (CRUD + CSV bulk import) ─────
