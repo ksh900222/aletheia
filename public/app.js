@@ -768,6 +768,19 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Number of comments on this report authored by the current user. Used to
+// surface "내 코멘트 N" badges so commenters can locate their own threads.
+function countMyComments(r) {
+  const selfName = (state.team.self && state.team.self.name) || '';
+  if (!selfName || !r || !Array.isArray(r.comments)) return 0;
+  return r.comments.filter((c) => c.author === selfName).length;
+}
+
+function myCommentBadgeHtml(count) {
+  if (!count || count <= 0) return '';
+  return ` <span class="my-comment-badge" title="내가 남긴 코멘트가 있습니다">내 코멘트 ${count}</span>`;
+}
+
 // "2025-05-06" → "2025년 05월 06일 (수)". UTC base avoids local-tz drift
 // since report dates are stored as plain YYYY-MM-DD calendar dates.
 function formatDateKo(iso) {
@@ -3239,8 +3252,17 @@ function renderAllReportsView() {
         return `<span class="schedule-pill"${statusAttr} style="background:${escapeHtml(bg)};color:${inkOn(bg)};">${escapeHtml(s.title)}</span>`;
       }).join('');
 
+    // OFF mode (default — date 그룹) — append "내 코멘트 N" indicator next
+    // to the schedule pills on this specific report. ON mode hides this
+    // since the indicator already appears on the date heading.
+    const offModeMyCount = state.allReportsBySchedule ? 0 : countMyComments(r);
+    const offModeBadge = myCommentBadgeHtml(offModeMyCount);
+    const schedulesHtml = (schedPills || offModeBadge)
+      ? `<div class="report-item-schedules">${schedPills}${offModeBadge}</div>`
+      : '';
+
     li.innerHTML = `
-      ${schedPills ? `<div class="report-item-schedules">${schedPills}</div>` : ''}
+      ${schedulesHtml}
       <div class="report-item-body">${previewHtml}</div>
       <div class="report-item-meta">
         ${attChips || '<span class="muted">첨부 없음</span>'}
@@ -3265,6 +3287,15 @@ function renderAllReportsView() {
       dateGroup.className = 'reports-date-group';
       const dateHead = document.createElement('h4');
       dateHead.textContent = formatDateKo(date);
+      // ON mode (스케줄별 그룹) — append "내 코멘트 N" indicator to date head
+      // when this user authored at least one comment on the date's reports.
+      if (state.allReportsBySchedule) {
+        const dayReports0 = byDate.get(date);
+        const myCount = dayReports0.reduce((s, r) => s + countMyComments(r), 0);
+        if (myCount > 0) {
+          dateHead.insertAdjacentHTML('beforeend', myCommentBadgeHtml(myCount));
+        }
+      }
       dateGroup.appendChild(dateHead);
 
       const list = document.createElement('ol');
@@ -3484,18 +3515,23 @@ function openTeamReportViewer(r) {
   // handler can route to the right peer and report.
   m.dataset.owner = r.owner || '';
   m.dataset.reportId = String(r.id);
-  renderTeamCommentsList(r.comments || []);
+  renderTeamCommentsList(r.comments || [], r.owner || '');
   const inputEl = document.getElementById('team-comments-input');
   if (inputEl) inputEl.value = '';
 
   m.classList.remove('hidden');
 }
 
-function renderCommentsInto(listId, countId, comments) {
+function renderCommentsInto(listId, countId, comments, opts) {
   const list = document.getElementById(listId);
   const count = document.getElementById(countId);
   if (!list) return;
   const arr = comments || [];
+  // editable=true → render 편집/삭제 buttons on rows the viewer authored.
+  // Owner is the report owner (peer name); used to forward edits/deletes.
+  const editable = !!(opts && opts.editable);
+  const owner = (opts && opts.owner) || '';
+  const selfName = (state.team.self && state.team.self.name) || '';
   list.innerHTML = '';
   if (count) count.textContent = arr.length > 0 ? `(${arr.length})` : '';
   if (arr.length === 0) {
@@ -3513,6 +3549,8 @@ function renderCommentsInto(listId, countId, comments) {
   });
   for (const c of ordered) {
     const li = document.createElement('li');
+    li.dataset.commentId = String(c.id);
+    if (owner) li.dataset.owner = owner;
     const head = document.createElement('div');
     head.className = 'team-comment-head';
     const author = document.createElement('span');
@@ -3527,16 +3565,29 @@ function renderCommentsInto(listId, countId, comments) {
     body.textContent = c.body || '';
     li.appendChild(head);
     li.appendChild(body);
+    if (editable && selfName && c.author === selfName) {
+      const actions = document.createElement('div');
+      actions.className = 'team-comment-actions';
+      actions.innerHTML =
+        '<button type="button" class="btn-link" data-action="edit-comment">편집</button>' +
+        '<button type="button" class="btn-link btn-link-danger" data-action="remove-comment">삭제</button>';
+      li.appendChild(actions);
+    }
     list.appendChild(li);
   }
 }
 
-function renderTeamCommentsList(comments) {
-  renderCommentsInto('team-comments-list', 'team-comments-count', comments);
+function renderTeamCommentsList(comments, owner) {
+  renderCommentsInto('team-comments-list', 'team-comments-count', comments, {
+    editable: true,
+    owner: owner || (document.getElementById('team-report-viewer-modal')?.dataset.owner || ''),
+  });
 }
 
 function renderOwnReportComments(comments) {
-  renderCommentsInto('report-comments-list', 'report-comments-count', comments);
+  renderCommentsInto('report-comments-list', 'report-comments-count', comments, {
+    editable: false,
+  });
 }
 
 // SQLite stores datetime('now') in UTC as "YYYY-MM-DD HH:MM:SS". Convert to
@@ -3607,7 +3658,10 @@ async function submitTeamComment() {
     );
     if (r) {
       r.comments = [...(r.comments || []), optimistic];
-      renderTeamCommentsList(r.comments);
+      renderTeamCommentsList(r.comments, owner);
+      if (state.scope === 'all-reports' && typeof renderAllReportsView === 'function') {
+        renderAllReportsView();
+      }
     }
 
     // Background sync to canonicalize without blocking the UI. If the user
@@ -4008,13 +4062,31 @@ function handleTeamEvent(ev) {
     const preview = ev.detail.bodyPreview || '';
     const reportId = ev.detail.report_id;
     showToast(`${author}이(가) 리포트에 코멘트를 남겼습니다: ${preview}`, 'info', 5000);
-    // If the own report modal is open and showing this very report, refresh
-    // its comment panel inline so the user sees the new entry without
-    // closing/reopening.
-    if (state.editingReportId === Number(reportId) &&
-        els.reportModal && !els.reportModal.classList.contains('hidden')) {
-      refreshOwnReportComments(reportId).catch(() => {});
-    }
+    refreshAfterCommentEvent(reportId);
+  } else if (ev.kind === 'comment_edited') {
+    const author = ev.detail.author || '?';
+    const preview = ev.detail.bodyPreview || '';
+    const reportId = ev.detail.report_id;
+    showToast(`${author} 코멘트 수정됨: ${preview}`, 'info', 4000);
+    refreshAfterCommentEvent(reportId);
+  } else if (ev.kind === 'comment_removed') {
+    const author = ev.detail.author || '?';
+    const reportId = ev.detail.report_id;
+    showToast(`${author}이(가) 코멘트를 삭제했습니다`, 'info', 4000);
+    refreshAfterCommentEvent(reportId);
+  }
+}
+
+// On any comment_* event, freshen our own data (own reports' comments[] now
+// changed in our DB) and re-render whichever surface might display them.
+async function refreshAfterCommentEvent(reportId) {
+  try { await loadAllReports(); } catch {}
+  if (state.scope === 'all-reports' && typeof renderAllReportsView === 'function') {
+    renderAllReportsView();
+  }
+  if (state.editingReportId === Number(reportId) &&
+      els.reportModal && !els.reportModal.classList.contains('hidden')) {
+    await refreshOwnReportComments(reportId);
   }
 }
 
@@ -4079,6 +4151,126 @@ if (teamReportViewerModal) {
 const teamCommentsSubmitBtn = document.getElementById('team-comments-submit');
 if (teamCommentsSubmitBtn) {
   teamCommentsSubmitBtn.addEventListener('click', submitTeamComment);
+}
+
+// Edit/delete on own comments inside the team report viewer modal. Single
+// delegated listener — renderCommentsInto wipes the list on each render so
+// per-row listeners would leak.
+const teamCommentsListEl = document.getElementById('team-comments-list');
+if (teamCommentsListEl) {
+  teamCommentsListEl.addEventListener('click', async (e) => {
+    const li = e.target.closest('li[data-comment-id]');
+    if (!li) return;
+    const commentId = Number(li.dataset.commentId);
+    const owner = li.dataset.owner || '';
+
+    if (e.target.matches('button[data-action="edit-comment"]')) {
+      enterCommentEditMode(li);
+      return;
+    }
+    if (e.target.matches('button[data-action="cancel-comment"]')) {
+      // Revert to the canonical render via the cached merged report.
+      const reportId = Number(document.getElementById('team-report-viewer-modal')?.dataset.reportId || 0);
+      const r = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
+      if (r) renderTeamCommentsList(r.comments || [], owner);
+      return;
+    }
+    if (e.target.matches('button[data-action="save-comment"]')) {
+      const ta = li.querySelector('.team-comment-edit-input');
+      const newBody = ta ? ta.value.trim() : '';
+      if (!newBody) { showToast('내용을 입력하세요', 'error'); return; }
+      await saveCommentEdit(owner, commentId, newBody);
+      return;
+    }
+    if (e.target.matches('button[data-action="remove-comment"]')) {
+      if (!confirm('이 코멘트를 삭제할까요?')) return;
+      await removeOwnComment(owner, commentId);
+      return;
+    }
+  });
+}
+
+function enterCommentEditMode(li) {
+  const body = li.querySelector('.team-comment-body');
+  const actions = li.querySelector('.team-comment-actions');
+  if (!body) return;
+  const original = body.textContent || '';
+  const wrapper = document.createElement('div');
+  wrapper.className = 'team-comment-edit-wrapper';
+  wrapper.innerHTML =
+    '<textarea class="team-comment-edit-input" rows="3"></textarea>' +
+    '<div class="team-comment-edit-actions">' +
+      '<button type="button" class="btn" data-action="cancel-comment">취소</button>' +
+      '<button type="button" class="btn btn-primary" data-action="save-comment">저장</button>' +
+    '</div>';
+  wrapper.querySelector('textarea').value = original;
+  body.replaceWith(wrapper);
+  if (actions) actions.style.display = 'none';
+  wrapper.querySelector('textarea').focus();
+}
+
+async function saveCommentEdit(owner, commentId, newBody) {
+  try {
+    const res = await fetch('/api/team/comment-edit-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner, comment_id: commentId, body: newBody }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail && err.detail.error || err.error || res.status;
+      showToast(`코멘트 수정 실패: ${detail}`, 'error');
+      return;
+    }
+    showToast('코멘트가 수정되었습니다');
+    // Optimistic update — patch local state.team.merged and re-render.
+    const reportId = Number(document.getElementById('team-report-viewer-modal')?.dataset.reportId || 0);
+    const r = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
+    if (r && Array.isArray(r.comments)) {
+      r.comments = r.comments.map((c) =>
+        Number(c.id) === Number(commentId) ? { ...c, body: newBody } : c
+      );
+      renderTeamCommentsList(r.comments, owner);
+      if (state.scope === 'all-reports') renderAllReportsView();
+    }
+    // Background sync for canonicalization.
+    (async () => {
+      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+      try { await loadTeamMerged(); } catch {}
+    })();
+  } catch (e) {
+    showToast(`코멘트 수정 오류: ${e.message}`, 'error');
+  }
+}
+
+async function removeOwnComment(owner, commentId) {
+  try {
+    const res = await fetch('/api/team/comment-remove-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner, comment_id: commentId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail && err.detail.error || err.error || res.status;
+      showToast(`코멘트 삭제 실패: ${detail}`, 'error');
+      return;
+    }
+    showToast('코멘트가 삭제되었습니다');
+    const reportId = Number(document.getElementById('team-report-viewer-modal')?.dataset.reportId || 0);
+    const r = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
+    if (r && Array.isArray(r.comments)) {
+      r.comments = r.comments.filter((c) => Number(c.id) !== Number(commentId));
+      renderTeamCommentsList(r.comments, owner);
+      if (state.scope === 'all-reports') renderAllReportsView();
+    }
+    (async () => {
+      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+      try { await loadTeamMerged(); } catch {}
+    })();
+  } catch (e) {
+    showToast(`코멘트 삭제 오류: ${e.message}`, 'error');
+  }
 }
 
 // ───── Team peer management modal (CRUD + CSV bulk import) ─────
