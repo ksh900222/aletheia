@@ -22,17 +22,16 @@ function clientIp(req) {
 // Local-UI 전용 엔드포인트 가드 (C-3). server.js 의 WRITE_ALLOWLIST 와 동일
 // 의미. team router 가 IP write-guard 보다 앞에 마운트되어 있으므로 여기서
 // 직접 차단해야 LAN 의 비-사용자가 peer 목록을 조작하지 못함.
-const WRITE_ALLOWLIST = new Set([
-  '10.115.41.127',
-  '10.115.33.155',
-  '10.115.147.185',
-  '192.168.0.16',
-  '127.0.0.1',
-  '::1',
-]);
+//
+// 자기 PC 의 모든 네트워크 인터페이스 IP 는 peerWatcher.getLocalIPs() 로
+// 자동 허용 (실행 주체가 자기 LAN IP 로 접속해도 읽기 전용이 되지 않도록).
+// 추가로 허용할 IP 가 있으면 아래 set 에 적고 재시작.
+const WRITE_ALLOWLIST = new Set([]);
 function localOnly(req, res, next) {
-  if (WRITE_ALLOWLIST.has(clientIp(req))) return next();
-  return res.status(403).json({ error: 'forbidden_local_only', ip: clientIp(req) });
+  const ip = clientIp(req);
+  if (WRITE_ALLOWLIST.has(ip)) return next();
+  if (peerWatcher.getLocalIPs().has(ip)) return next();
+  return res.status(403).json({ error: 'forbidden_local_only', ip });
 }
 
 const insertCommentStmt = db.prepare(
