@@ -79,9 +79,10 @@ router.post('/request', upload.array('files', 20), async (req, res) => {
   const body = String(req.body.body || '').trim();
   if (!body) return res.status(400).json({ error: 'empty_body' });
   if (body.length > 10000) return res.status(400).json({ error: 'body_too_long' });
-  // Deadline format: client sends "YYYY-MM-DD HH:MM" or empty. Accept any
-  // non-empty string and trust the client format for v1.
-  const deadline = req.body.deadline ? String(req.body.deadline).trim() : null;
+  // Deadline format: client sends "YYYY-MM-DD HH:MM". Required — frontend
+  // also blocks empty deadlines but we double-check here.
+  const deadline = req.body.deadline ? String(req.body.deadline).trim() : '';
+  if (!deadline) return res.status(400).json({ error: 'deadline_required' });
 
   const cfg = settings.get();
   const sender = cfg.self.name;
