@@ -4144,6 +4144,8 @@ function handleTeamEvent(ev) {
     const preview = ev.detail.bodyPreview || '';
     const dl = ev.detail.deadline ? ` (기한: ${ev.detail.deadline})` : '';
     showToast(`${sender}이(가) 업무를 요청했습니다${dl}: ${preview}`, 'info', 6000);
+    // Pending count changed — refresh launcher / choice badges.
+    refreshInboundPendingBadge();
     // If the inbound list modal is open, refresh it inline.
     if (taskInboundEls && taskInboundEls.modal &&
         !taskInboundEls.modal.classList.contains('hidden')) {
@@ -5372,6 +5374,35 @@ async function submitTaskRequest() {
   }
 }
 
+// ───── Inbound pending badge (launcher + choice button) ─────
+async function refreshInboundPendingBadge() {
+  let pending = 0;
+  try {
+    const res = await fetch('/api/tasks/inbound-stats');
+    if (res.ok) {
+      const d = await res.json();
+      pending = Number(d.pending) || 0;
+    }
+  } catch { /* network blip — skip update */ return; }
+  const apply = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (pending > 0) {
+      el.textContent = pending > 99 ? '99+' : String(pending);
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  };
+  apply('task-launcher-badge');
+  apply('task-inbound-pending-badge');
+}
+
+// Initial paint + periodic refresh as a safety net (events should already
+// keep it accurate, but a 30s tick covers SSE drops / clock skew).
+refreshInboundPendingBadge();
+setInterval(refreshInboundPendingBadge, 30000);
+
 // ───── Inbound (요청받은 업무) list + detail ─────
 
 const taskInboundEls = {
@@ -5564,6 +5595,7 @@ async function submitTaskResponse(action) {
     showToast(`'${label}' 으로 응답했습니다`, 'info', 3000);
     closeTaskDetailModal();
     await loadAndRenderInbound();
+    refreshInboundPendingBadge();
   } catch (e) {
     showToast(`응답 오류: ${e.message}`, 'error');
   }

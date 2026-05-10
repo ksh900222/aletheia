@@ -188,6 +188,16 @@ router.get('/inbound', (req, res) => {
   res.json(rows);
 });
 
+// GET /api/tasks/inbound-stats — small payload used to keep the launcher /
+// choice-modal badge fresh without pulling the full list.
+router.get('/inbound-stats', (req, res) => {
+  const row = db.prepare(
+    `SELECT COUNT(*) AS n FROM task_requests
+      WHERE direction = 'inbound' AND status = 'pending'`
+  ).get();
+  res.json({ pending: row ? row.n : 0 });
+});
+
 // GET /api/tasks/:id — single decorated row (any direction).
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);

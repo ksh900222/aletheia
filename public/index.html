@@ -27,7 +27,10 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- Bottom-left floating "업무요청" entry button. Always visible. -->
-  <button type="button" id="task-request-launcher" class="task-request-launcher" title="업무 요청 / 받은 업무">업무요청</button>
+  <button type="button" id="task-request-launcher" class="task-request-launcher" title="업무 요청 / 받은 업무">
+    업무요청
+    <span id="task-launcher-badge" class="task-pending-badge hidden">0</span>
+  </button>
 
   <main class="layout">
     <aside class="sidebar">
@@ -490,6 +493,7 @@
           <div class="task-choice-desc">내가 보낸 요청 보기</div>
         </button>
         <button type="button" id="task-choice-inbound" class="task-choice-btn">
+          <span id="task-inbound-pending-badge" class="task-pending-badge hidden">0</span>
           <div class="task-choice-title">요청받은 업무</div>
           <div class="task-choice-desc">받은 요청 처리 (수락/조정/거부)</div>
         </button>
