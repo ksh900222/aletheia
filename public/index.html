@@ -26,6 +26,9 @@
 
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- Bottom-left floating "업무요청" entry button. Always visible. -->
+  <button type="button" id="task-request-launcher" class="task-request-launcher" title="업무 요청 / 받은 업무">업무요청</button>
+
   <main class="layout">
     <aside class="sidebar">
       <button id="all-view-btn" class="all-view-btn">전체 간트</button>
@@ -468,6 +471,74 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — choice modal (요청한 업무 / 요청받은 업무) -->
+  <div id="task-choice-modal" class="modal hidden">
+    <div class="modal-card task-choice-card">
+      <h3>업무 요청</h3>
+      <p class="muted" style="font-size:12px; margin:0 0 16px;">선택해주세요.</p>
+      <div class="task-choice-grid">
+        <button type="button" id="task-choice-outbound" class="task-choice-btn">
+          <div class="task-choice-title">요청한 업무</div>
+          <div class="task-choice-desc">팀원에게 업무를 요청합니다</div>
+        </button>
+        <button type="button" id="task-choice-inbound" class="task-choice-btn" disabled title="추후 진행 예정">
+          <div class="task-choice-title">요청받은 업무</div>
+          <div class="task-choice-desc">받은 업무 확인 (준비 중)</div>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task request — outbound form modal -->
+  <div id="task-request-modal" class="modal hidden">
+    <div class="modal-card task-request-card">
+      <h3>업무 요청 작성</h3>
+
+      <div class="task-request-section">
+        <label class="task-request-label">수신자
+          <span id="task-request-recipient-count" class="muted" style="font-size:11px;"></span>
+        </label>
+        <div class="task-request-recipients-toolbar">
+          <label><input type="checkbox" id="task-request-select-all" /> 전체 선택</label>
+        </div>
+        <div id="task-request-recipients" class="task-request-recipients"></div>
+      </div>
+
+      <div class="task-request-section">
+        <label class="task-request-label" for="task-request-body">본문</label>
+        <textarea id="task-request-body" rows="6"></textarea>
+      </div>
+
+      <div class="task-request-section">
+        <label class="task-request-label">기한 <span class="muted" style="font-size:11px;">(선택)</span></label>
+        <div class="row">
+          <input type="date" id="task-request-deadline-date" />
+          <input type="time" id="task-request-deadline-time" step="60" />
+          <button type="button" id="task-request-deadline-clear" class="btn">기한 해제</button>
+        </div>
+      </div>
+
+      <div class="task-request-section">
+        <label class="task-request-label">첨부 <span class="muted" style="font-size:11px;">(선택, 최대 50MB · 20개)</span></label>
+        <div class="task-request-attach-row">
+          <label class="btn">
+            파일 추가
+            <input type="file" id="task-request-files" multiple hidden />
+          </label>
+          <ul id="task-request-file-list" class="task-request-file-list"></ul>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="button" id="task-request-submit" class="btn btn-primary">요청</button>
       </div>
     </div>
   </div>

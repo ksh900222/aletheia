@@ -4139,6 +4139,11 @@ function handleTeamEvent(ev) {
     const reportId = ev.detail.report_id;
     showToast(`${author}이(가) 코멘트를 삭제했습니다`, 'info', 4000);
     refreshAfterCommentEvent(reportId);
+  } else if (ev.kind === 'task_request_received') {
+    const sender = ev.detail.sender || '?';
+    const preview = ev.detail.bodyPreview || '';
+    const dl = ev.detail.deadline ? ` (기한: ${ev.detail.deadline})` : '';
+    showToast(`${sender}이(가) 업무를 요청했습니다${dl}: ${preview}`, 'info', 6000);
   }
 }
 
@@ -4609,3 +4614,233 @@ if (teamManageEls.announceBtn) {
 }
 
 loadTeamState();
+
+// ───── Task request (업무 요청) ─────
+
+const TASK_REQUEST_DEFAULT_BODY = '업무를 최대한 명확하게 작성 바랍니다';
+
+const taskEls = {
+  launcher:        document.getElementById('task-request-launcher'),
+  choiceModal:     document.getElementById('task-choice-modal'),
+  outboundChoice:  document.getElementById('task-choice-outbound'),
+  inboundChoice:   document.getElementById('task-choice-inbound'),
+  requestModal:    document.getElementById('task-request-modal'),
+  recipientsBox:   document.getElementById('task-request-recipients'),
+  recipientCount:  document.getElementById('task-request-recipient-count'),
+  selectAll:       document.getElementById('task-request-select-all'),
+  body:            document.getElementById('task-request-body'),
+  deadlineDate:    document.getElementById('task-request-deadline-date'),
+  deadlineTime:    document.getElementById('task-request-deadline-time'),
+  deadlineClear:   document.getElementById('task-request-deadline-clear'),
+  files:           document.getElementById('task-request-files'),
+  fileList:        document.getElementById('task-request-file-list'),
+  submitBtn:       document.getElementById('task-request-submit'),
+};
+
+let taskPendingFiles = [];
+
+function openTaskChoiceModal() {
+  if (taskEls.choiceModal) taskEls.choiceModal.classList.remove('hidden');
+}
+function closeTaskChoiceModal() {
+  if (taskEls.choiceModal) taskEls.choiceModal.classList.add('hidden');
+}
+
+function openTaskRequestModal() {
+  if (!taskEls.requestModal) return;
+  populateTaskRecipients();
+  taskEls.body.value = TASK_REQUEST_DEFAULT_BODY;
+  taskEls.deadlineDate.value = '';
+  taskEls.deadlineTime.value = '';
+  taskPendingFiles = [];
+  renderTaskFileList();
+  taskEls.requestModal.classList.remove('hidden');
+}
+function closeTaskRequestModal() {
+  if (taskEls.requestModal) taskEls.requestModal.classList.add('hidden');
+}
+
+async function populateTaskRecipients() {
+  taskEls.recipientsBox.innerHTML = '<div class="empty">불러오는 중...</div>';
+  let peers = [];
+  try {
+    const res = await fetch('/api/team/peers');
+    if (res.ok) {
+      const data = await res.json();
+      peers = (data.peers || []).filter((p) => !p.isSelf);
+    }
+  } catch { /* network blip */ }
+  taskEls.recipientsBox.innerHTML = '';
+  if (peers.length === 0) {
+    taskEls.recipientsBox.innerHTML = '<div class="empty">등록된 팀원이 없습니다 (팀원 관리에서 추가 필요)</div>';
+    taskEls.recipientCount.textContent = '';
+    if (taskEls.selectAll) taskEls.selectAll.checked = false;
+    updateTaskSubmitDisabled();
+    return;
+  }
+  for (const p of peers) {
+    const id = `task-recip-${p.name}`;
+    const wrap = document.createElement('label');
+    wrap.htmlFor = id;
+    wrap.innerHTML = `<input type="checkbox" id="${id}" data-recipient="${escapeHtml(p.name)}" /> <span>${escapeHtml(p.name)}</span>`;
+    taskEls.recipientsBox.appendChild(wrap);
+  }
+  taskEls.recipientsBox.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      updateTaskRecipientCount();
+      updateTaskSelectAllState();
+      updateTaskSubmitDisabled();
+    });
+  });
+  if (taskEls.selectAll) taskEls.selectAll.checked = false;
+  updateTaskRecipientCount();
+  updateTaskSubmitDisabled();
+}
+
+function selectedRecipientNames() {
+  return Array.from(
+    taskEls.recipientsBox.querySelectorAll('input[type=checkbox]:checked')
+  ).map((cb) => cb.dataset.recipient);
+}
+
+function updateTaskRecipientCount() {
+  const total = taskEls.recipientsBox.querySelectorAll('input[type=checkbox]').length;
+  const sel = selectedRecipientNames().length;
+  taskEls.recipientCount.textContent = total > 0 ? `(${sel} / ${total})` : '';
+}
+
+function updateTaskSelectAllState() {
+  if (!taskEls.selectAll) return;
+  const all = taskEls.recipientsBox.querySelectorAll('input[type=checkbox]');
+  if (all.length === 0) { taskEls.selectAll.checked = false; return; }
+  const sel = selectedRecipientNames().length;
+  taskEls.selectAll.checked = sel === all.length;
+  taskEls.selectAll.indeterminate = sel > 0 && sel < all.length;
+}
+
+function updateTaskSubmitDisabled() {
+  if (!taskEls.submitBtn) return;
+  const sel = selectedRecipientNames().length;
+  const body = (taskEls.body.value || '').trim();
+  taskEls.submitBtn.disabled = sel === 0 || !body;
+}
+
+function renderTaskFileList() {
+  if (!taskEls.fileList) return;
+  taskEls.fileList.innerHTML = '';
+  taskPendingFiles.forEach((entry, idx) => {
+    const li = document.createElement('li');
+    const sizeKb = (entry.file.size / 1024).toFixed(0);
+    li.innerHTML = `${escapeHtml(entry.displayName)} <span class="muted">(${sizeKb} KB)</span> <button type="button" class="remove-file" data-idx="${idx}" title="제거">×</button>`;
+    taskEls.fileList.appendChild(li);
+  });
+}
+
+if (taskEls.launcher) {
+  taskEls.launcher.addEventListener('click', openTaskChoiceModal);
+}
+if (taskEls.choiceModal) {
+  taskEls.choiceModal.addEventListener('click', (e) => {
+    if (e.target === taskEls.choiceModal || e.target.matches('[data-close]')) {
+      closeTaskChoiceModal();
+    }
+  });
+}
+if (taskEls.outboundChoice) {
+  taskEls.outboundChoice.addEventListener('click', () => {
+    closeTaskChoiceModal();
+    openTaskRequestModal();
+  });
+}
+if (taskEls.inboundChoice) {
+  taskEls.inboundChoice.addEventListener('click', () => {
+    showToast('요청받은 업무는 추후 진행 예정입니다', 'info', 3000);
+  });
+}
+if (taskEls.requestModal) {
+  taskEls.requestModal.addEventListener('click', (e) => {
+    if (e.target === taskEls.requestModal || e.target.matches('[data-close]')) {
+      closeTaskRequestModal();
+    }
+  });
+}
+if (taskEls.selectAll) {
+  taskEls.selectAll.addEventListener('change', () => {
+    const checked = taskEls.selectAll.checked;
+    taskEls.recipientsBox.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      cb.checked = checked;
+    });
+    updateTaskRecipientCount();
+    updateTaskSubmitDisabled();
+  });
+}
+if (taskEls.body) {
+  taskEls.body.addEventListener('input', updateTaskSubmitDisabled);
+}
+if (taskEls.deadlineClear) {
+  taskEls.deadlineClear.addEventListener('click', () => {
+    taskEls.deadlineDate.value = '';
+    taskEls.deadlineTime.value = '';
+  });
+}
+if (taskEls.files) {
+  taskEls.files.addEventListener('change', (e) => {
+    for (const file of e.target.files) {
+      taskPendingFiles.push({ file, displayName: file.name });
+    }
+    e.target.value = '';
+    renderTaskFileList();
+  });
+}
+if (taskEls.fileList) {
+  taskEls.fileList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-file');
+    if (!btn) return;
+    const idx = Number(btn.dataset.idx);
+    if (Number.isInteger(idx) && idx >= 0) {
+      taskPendingFiles.splice(idx, 1);
+      renderTaskFileList();
+    }
+  });
+}
+if (taskEls.submitBtn) {
+  taskEls.submitBtn.addEventListener('click', submitTaskRequest);
+}
+
+async function submitTaskRequest() {
+  const recipients = selectedRecipientNames();
+  if (recipients.length === 0) { showToast('수신자를 한 명 이상 선택하세요', 'error'); return; }
+  const body = (taskEls.body.value || '').trim();
+  if (!body) { showToast('본문을 입력하세요', 'error'); return; }
+  let deadline = '';
+  const d = (taskEls.deadlineDate.value || '').trim();
+  const t = (taskEls.deadlineTime.value || '').trim();
+  if (d) deadline = t ? `${d} ${t}` : `${d} 00:00`;
+
+  const fd = new FormData();
+  fd.append('recipients', JSON.stringify(recipients));
+  fd.append('body', body);
+  if (deadline) fd.append('deadline', deadline);
+  for (const entry of taskPendingFiles) {
+    fd.append('files', entry.file, entry.displayName);
+  }
+
+  taskEls.submitBtn.disabled = true;
+  taskEls.submitBtn.textContent = '전송 중...';
+  try {
+    const res = await fetch('/api/tasks/request', { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(`요청 실패: ${data.detail || data.error || res.status}`, 'error');
+      return;
+    }
+    const delivered = (data.delivered_to || []).length;
+    showToast(`업무 요청을 ${delivered}명에게 전송했습니다`, 'info', 3500);
+    closeTaskRequestModal();
+  } catch (e) {
+    showToast(`요청 오류: ${e.message}`, 'error');
+  } finally {
+    taskEls.submitBtn.disabled = false;
+    taskEls.submitBtn.textContent = '요청';
+  }
+}
