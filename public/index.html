@@ -90,6 +90,11 @@
           <h3 id="schedule-section-title">스케줄</h3>
           <div class="schedule-toolbar">
             <input id="schedule-search" type="search" placeholder="제목/카테고리/담당자 검색..." />
+            <label id="all-owner-wrap" class="date-filter hidden">담당자
+              <select id="all-owner">
+                <option value="">전체</option>
+              </select>
+            </label>
             <button type="button" id="expand-connected-btn" class="btn cat-only" title="이 카테고리와 의존성으로 연결된 다른 카테고리·스케줄도 함께 표시">연결 포함 OFF</button>
             <button type="button" id="show-arrows-btn" class="btn" title="간트에서 의존성을 화살표로 표시">화살표 OFF</button>
             <button type="button" id="chain-sort-btn" class="btn" title="강한 연결로 묶인 항목들을 한 사슬씩 인접하게 배치">체인정렬 OFF</button>

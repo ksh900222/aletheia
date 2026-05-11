@@ -17,6 +17,7 @@ const state = {
   undoStack: [],          // [{kind, ...}] — see performUndo for record shapes
   redoStack: [],          // mirror; cleared whenever a new tracked action happens
   reportQuery: '',        // free-text filter for reports (per-category panel)
+  allOwner: '',           // 전체 간트 owner filter: '' = all, '__self' = own only, '<peerName>' = that peer
   allReports: [],         // all reports across categories (loaded for all-reports view)
   allReportsQuery: '',    // search query in all-reports view
   allReportsDateFrom: '', // YYYY-MM-DD inclusive lower bound for all-reports view (empty = no bound)
@@ -77,6 +78,8 @@ const els = {
   allReportsDateClear: $('#all-reports-date-clear'),
   allReportsOwner: $('#all-reports-owner'),
   allReportsOwnerWrap: $('#all-reports-owner-wrap'),
+  allOwner: $('#all-owner'),
+  allOwnerWrap: $('#all-owner-wrap'),
   // Reports
   reportRows: $('#report-rows'),
   reportModal: $('#report-modal'),
@@ -280,6 +283,11 @@ function renderCategories() {
 }
 
 function renderCategoryView() {
+  // Keep the 전체 간트 담당자 dropdown in sync regardless of which branch
+  // below runs — the helper hides itself when scope !== 'all' or team mode
+  // is OFF, so it's safe to always call.
+  if (typeof syncAllOwnerOptions === 'function') syncAllOwnerOptions();
+
   // All-reports view: hide gantt/category UI, show grouped reports.
   if (state.scope === 'all-reports') {
     els.emptyState.classList.add('hidden');
@@ -377,12 +385,19 @@ function effectiveSchedules() {
   let baseIdSet;
   if (state.scope === 'all') {
     base = state.allSchedules.slice();
-    baseIdSet = new Set(base.map((s) => s.id));
     // Team mode: append peer schedules. They keep numeric ids but carry an
     // `owner` field so renderers and lookups can distinguish them.
     if (teamOn() && state.team.merged.schedules.length > 0) {
       base = base.concat(state.team.merged.schedules);
     }
+    if (state.allOwner) {
+      if (state.allOwner === '__self') {
+        base = base.filter((s) => !s.owner);
+      } else {
+        base = base.filter((s) => s.owner === state.allOwner);
+      }
+    }
+    baseIdSet = new Set(base.map((s) => s.id));
   } else {
     base = state.schedules;
     baseIdSet = new Set(base.map((s) => s.id));
@@ -439,6 +454,11 @@ function renderSchedules() {
 
   els.scheduleRows.innerHTML = '';
   const { schedules: visible, baseIdSet } = effectiveSchedules();
+  // 전체 간트(=리스트) 에서도 본인 항목 뒤에 자신의 이름을 표시한다.
+  // 팀원 항목은 이미 teamOwnerSuffix(owner) 가 적용됨.
+  const selfNameForList = (state.team.self && state.team.self.name) || '';
+  const showOwnerForOwnList =
+    state.scope === 'all' && teamOn() && !!selfNameForList;
   if (visible.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
@@ -471,9 +491,12 @@ function renderSchedules() {
     const tr = document.createElement('tr');
     if (isExtra) tr.style.opacity = '0.85';
     if (isTeam) tr.classList.add('team-readonly');
+    const ownSuffixHtml = !isTeam && showOwnerForOwnList
+      ? teamOwnerSuffix(selfNameForList)
+      : '';
     const titleHtml = isTeam
       ? `${escapeHtml(s.title)}${teamOwnerSuffix(s.owner)}`
-      : `${escapeHtml(s.title)}${isExtra ? ' <span class="muted" title="연결된 항목">·연결</span>' : ''}`;
+      : `${escapeHtml(s.title)}${ownSuffixHtml}${isExtra ? ' <span class="muted" title="연결된 항목">·연결</span>' : ''}`;
     const statusCell = isTeam
       ? `<td><span class="status-pill ${s.status}">${s.status}</span></td>`
       : `<td><span class="status-pill ${s.status}" data-action="cycle-status" data-id="${s.id}" role="button" title="클릭하여 다음 상태로 변경">${s.status}</span></td>`;
@@ -1033,6 +1056,11 @@ function renderGantt() {
   grid.appendChild(header);
 
   // Schedule rows.
+  // In 전체 간트, append the user's own name as a "| 이름" suffix on each of
+  // their own bars too — peer bars already get this via teamOwnerSuffix, so
+  // the suffix becomes a uniform owner label across the whole chart.
+  const selfName = (state.team.self && state.team.self.name) || '';
+  const showOwnerForOwn = state.scope === 'all' && teamOn() && !!selfName;
   const positions = new Map(); // schedule.id → {left, right, midY}
   for (let i = 0; i < visible.length; i++) {
     const s = visible[i];
@@ -1090,9 +1118,10 @@ function renderGantt() {
       : `${catLabel}${s.title}${ownerForTitle}\n${s.planned_start} ~ ${s.planned_end}`;
     const barLabelEl = document.createElement('span');
     barLabelEl.className = 'gantt-bar-label';
-    if (s.owner) {
+    const labelOwner = s.owner || (showOwnerForOwn ? selfName : '');
+    if (labelOwner) {
       barLabelEl.innerHTML =
-        escapeHtml(catLabel + s.title) + teamOwnerSuffix(s.owner);
+        escapeHtml(catLabel + s.title) + teamOwnerSuffix(labelOwner);
     } else {
       barLabelEl.textContent = catLabel + s.title;
     }
@@ -4218,6 +4247,50 @@ if (els.allReportsOwner) {
   els.allReportsOwner.addEventListener('change', () => {
     state.allReportsOwner = els.allReportsOwner.value;
     if (typeof renderAllReportsView === 'function') renderAllReportsView();
+  });
+}
+
+// Mirrors syncAllReportsOwnerOptions, but for the 전체 간트 (scope === 'all')
+// owner dropdown. Visible only when we're in 전체 간트 AND team mode is ON,
+// since peers are the only thing to filter against. Resetting state.allOwner
+// to '' when hidden keeps stale selections from leaking back when the user
+// returns to 전체 간트.
+function syncAllOwnerOptions() {
+  const wrap = els.allOwnerWrap;
+  const sel = els.allOwner;
+  if (!wrap || !sel) return;
+  const shouldShow = state.scope === 'all' && teamOn();
+  if (!shouldShow) {
+    wrap.classList.add('hidden');
+    if (state.allOwner) state.allOwner = '';
+    return;
+  }
+  wrap.classList.remove('hidden');
+
+  const currentValue = state.allOwner;
+  const selfName = (state.team.self && state.team.self.name) || '';
+  const peerNames = state.team.peers.map((p) => p.name);
+
+  sel.innerHTML = '';
+  const opts = [
+    { value: '', label: '전체' },
+    { value: '__self', label: selfName ? `${selfName} (본인)` : '본인' },
+    ...peerNames.map((n) => ({ value: n, label: n })),
+  ];
+  for (const o of opts) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    sel.appendChild(opt);
+  }
+  sel.value = opts.some((o) => o.value === currentValue) ? currentValue : '';
+  state.allOwner = sel.value;
+}
+
+if (els.allOwner) {
+  els.allOwner.addEventListener('change', () => {
+    state.allOwner = els.allOwner.value;
+    renderSchedules();
   });
 }
 
