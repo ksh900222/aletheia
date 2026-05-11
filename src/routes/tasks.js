@@ -225,6 +225,27 @@ router.get('/inbound', (req, res) => {
   res.json(rows);
 });
 
+// POST /api/tasks/delete — remove rows by id (one, some, or all). Caller is
+// responsible for collecting the right ids on the frontend (a "전체 삭제"
+// click sends every id currently rendered). Local cleanup only — does NOT
+// notify other peers (the recipient still has their own inbound row, the
+// requester their outbound; each side cleans up its own DB).
+//
+// FK cascade on task_request_attachments / task_request_comments is
+// enforced (PRAGMA foreign_keys = ON in db.js) so children clean up too.
+// Uploaded files in /uploads/ are intentionally NOT deleted: other peers
+// may still hold URL references to them, and orphan cleanup belongs to a
+// separate sweeper, not the per-row delete path.
+router.post('/delete', express.json(), (req, res) => {
+  const raw = (req.body && req.body.ids) || [];
+  if (!Array.isArray(raw)) return res.status(400).json({ error: 'invalid_ids' });
+  const ids = raw.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return res.status(400).json({ error: 'no_ids' });
+  const placeholders = ids.map(() => '?').join(',');
+  const info = db.prepare(`DELETE FROM task_requests WHERE id IN (${placeholders})`).run(...ids);
+  res.json({ ok: true, deleted: info.changes });
+});
+
 // GET /api/tasks/inbound-stats — small payload used to keep the launcher /
 // choice-modal badge fresh without pulling the full list.
 router.get('/inbound-stats', (req, res) => {
