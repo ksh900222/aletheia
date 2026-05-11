@@ -734,7 +734,8 @@ html, body {
 #expand-connected-btn.active,
 #show-arrows-btn.active,
 #chain-sort-btn.active,
-#all-reports-by-schedule-btn.active {
+#all-reports-by-schedule-btn.active,
+#sprint-review-toggle-btn.active {
   background: var(--primary);
   color: var(--primary-ink);
   border-color: var(--primary);
@@ -767,11 +768,23 @@ body.scope-all-reports .in-all-reports-only.hidden { display: none !important; }
 body.scope-sprint-review .in-sprint-review-only { display: block !important; }
 body.scope-sprint-review .in-sprint-review-only.hidden { display: none !important; }
 
-.all-reports-list li .sprint-review-check {
-  margin-right: 8px;
-  vertical-align: middle;
-}
 .sprint-review-check { transform: scale(1.15); cursor: pointer; }
+
+/* 선택 모드 — 체크박스를 본문 좌측에 분리해 두 칸 grid 로 정렬한다.
+   본문은 .sprint-row-content 안에 그대로 들어가서 기존 레이아웃 유지. */
+.all-reports-list li.sprint-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: start;
+}
+.all-reports-list li.sprint-row > .sprint-review-check {
+  margin-top: 6px;
+  align-self: start;
+}
+.all-reports-list li.sprint-row > .sprint-row-content {
+  min-width: 0;
+}
 
 #sprint-review-groups {
   display: flex;
