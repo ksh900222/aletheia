@@ -151,6 +151,10 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_task_request_comments_request ON task_request_comments(task_request_id);
 
+  -- Sprint review tables — created by the migration block below (not here)
+  -- so that databases left over from an earlier prototype schema can be
+  -- safely dropped + recreated. SQLite cannot ALTER a primary key in place.
+
   CREATE TABLE IF NOT EXISTS schema_migrations (
     name        TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -274,6 +278,56 @@ try {
   }
 } catch (e) {
   console.error('[db] task_requests schedule_id migration failed:', e.message);
+}
+
+// Sprint review tables — replicated across all team peers. Each peer's DB
+// holds: own groups (creator = '') AND cached copies of every other peer's
+// groups (creator = peer's display name). The composite PK (creator, id)
+// keeps locally-generated ids globally unique. Per-creator name uniqueness
+// only — different peers may each have a "Sprint 12".
+//
+// Migration is destructive for any prior prototype schema: an early local-only
+// version of this table existed without the `creator` column. Detect that by
+// checking for the column and drop+recreate if missing. Prototype data isn't
+// preserved because the table was never exposed to end users.
+try {
+  const groupCols = db.prepare(`PRAGMA table_info(sprint_groups)`).all();
+  const hasCreator = groupCols.some((c) => c.name === 'creator');
+  if (groupCols.length > 0 && !hasCreator) {
+    console.log('[db] dropping legacy sprint_groups table (no creator column) to rebuild');
+    db.exec(`DROP TABLE IF EXISTS sprint_group_members; DROP TABLE IF EXISTS sprint_groups;`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sprint_groups (
+      creator     TEXT NOT NULL DEFAULT '',
+      id          INTEGER NOT NULL,
+      name        TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (creator, id),
+      UNIQUE (creator, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sprint_groups_creator ON sprint_groups(creator);
+
+    CREATE TABLE IF NOT EXISTS sprint_group_members (
+      group_creator       TEXT NOT NULL DEFAULT '',
+      group_id            INTEGER NOT NULL,
+      report_id           INTEGER NOT NULL,
+      report_owner        TEXT NOT NULL DEFAULT '',
+      snapshot_date       TEXT NOT NULL DEFAULT '',
+      snapshot_body       TEXT NOT NULL DEFAULT '',
+      snapshot_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (group_creator, group_id, report_owner, report_id),
+      FOREIGN KEY (group_creator, group_id)
+        REFERENCES sprint_groups(creator, id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sprint_group_members_group
+      ON sprint_group_members(group_creator, group_id);
+    CREATE INDEX IF NOT EXISTS idx_sprint_group_members_report
+      ON sprint_group_members(report_owner, report_id);
+  `);
+} catch (e) {
+  console.error('[db] sprint_groups migration failed:', e.message);
 }
 
 module.exports = db;

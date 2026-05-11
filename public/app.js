@@ -18,6 +18,13 @@ const state = {
   redoStack: [],          // mirror; cleared whenever a new tracked action happens
   reportQuery: '',        // free-text filter for reports (per-category panel)
   allOwner: '',           // 전체 간트 owner filter: '' = all, '__self' = own only, '<peerName>' = that peer
+  sprintReview: {         // 전체 리포트 의 「스프린트 리뷰」 선택 모드 상태
+    mode: false,
+    selected: new Set(),  // composite keys "<owner>:<reportId>"
+  },
+  sprintGroups: [],       // /api/sprint-groups 응답: 본인 + replicated peer 그룹. 각 g 는
+                          // {creator, id, name, member_count, members:[{report_id,report_owner,snapshot_date,snapshot_body,...}]}
+  activeSprintGroupKey: null, // 활성 그룹의 composite key "<creator>:<id>"
   allReports: [],         // all reports across categories (loaded for all-reports view)
   allReportsQuery: '',    // search query in all-reports view
   allReportsDateFrom: '', // YYYY-MM-DD inclusive lower bound for all-reports view (empty = no bound)
@@ -60,6 +67,13 @@ const els = {
   dependencyCreateForm: $('#dependency-create-form'),
   allViewBtn: $('#all-view-btn'),
   allReportsBtn: $('#all-reports-btn'),
+  sprintReviewBtn: $('#sprint-review-btn'),
+  sprintReviewToggleBtn: $('#sprint-review-toggle-btn'),
+  sprintReviewConfirmBtn: $('#sprint-review-confirm-btn'),
+  sprintReviewGroups: $('#sprint-review-groups'),
+  sprintGroupModal: $('#sprint-group-modal'),
+  sprintGroupForm: $('#sprint-group-form'),
+  sprintGroupModalHint: $('#sprint-group-modal-hint'),
   ganttConnBanner: $('#gantt-conn-banner'),
   ganttConnBannerText: $('#gantt-conn-banner-text'),
   ganttConnCancel: $('#gantt-conn-cancel'),
@@ -227,6 +241,9 @@ function renderCategories() {
   els.categoryList.innerHTML = '';
   els.allViewBtn.classList.toggle('active', state.scope === 'all');
   els.allReportsBtn.classList.toggle('active', state.scope === 'all-reports');
+  if (els.sprintReviewBtn) {
+    els.sprintReviewBtn.classList.toggle('active', state.scope === 'sprint-review');
+  }
   if (state.categories.length === 0) {
     const li = document.createElement('li');
     li.className = 'muted';
@@ -288,18 +305,21 @@ function renderCategoryView() {
   // is OFF, so it's safe to always call.
   if (typeof syncAllOwnerOptions === 'function') syncAllOwnerOptions();
 
-  // All-reports view: hide gantt/category UI, show grouped reports.
-  if (state.scope === 'all-reports') {
+  // 전체 리포트 와 스프린트 리뷰 는 동일한 #all-reports-view DOM 을 공유하고
+  // body 의 scope-* 클래스로 차이를 표현. renderAllReportsView 는 그 안에서 분기.
+  if (state.scope === 'all-reports' || state.scope === 'sprint-review') {
     els.emptyState.classList.add('hidden');
     els.categoryView.classList.add('hidden');
     els.allReportsView.classList.remove('hidden');
     document.body.classList.remove('scope-all');
-    document.body.classList.add('scope-all-reports');
+    document.body.classList.toggle('scope-all-reports', state.scope === 'all-reports');
+    document.body.classList.toggle('scope-sprint-review', state.scope === 'sprint-review');
     renderAllReportsView();
     return;
   }
   els.allReportsView.classList.add('hidden');
   document.body.classList.remove('scope-all-reports');
+  document.body.classList.remove('scope-sprint-review');
 
   // All-view: show every schedule, hide category-specific UI.
   if (state.scope === 'all') {
@@ -3320,6 +3340,35 @@ function renderAllReportsView() {
 
   // Sync the 담당자 dropdown — visible only when team mode is ON.
   syncAllReportsOwnerOptions();
+  syncSprintReviewToolbar();
+  renderSprintReviewGroupChips();
+
+  const isSprintReviewScope = state.scope === 'sprint-review';
+  // 활성 그룹의 멤버 집합을 미리 구해 두면 필터링이 O(1).
+  let activeGroupMembers = null;
+  let activeGroupSnapshotMap = null; // "owner:id" → {date,body} fallback when live data missing
+  if (isSprintReviewScope && state.activeSprintGroupKey) {
+    const grp = state.sprintGroups.find(
+      (g) => `${g.creator}:${g.id}` === state.activeSprintGroupKey
+    );
+    if (grp) {
+      activeGroupMembers = new Set();
+      activeGroupSnapshotMap = new Map();
+      for (const m of grp.members || []) {
+        const key = `${m.report_owner || ''}:${m.report_id}`;
+        activeGroupMembers.add(key);
+        activeGroupSnapshotMap.set(key, {
+          report_date: m.snapshot_date,
+          body: m.snapshot_body,
+        });
+      }
+    }
+  }
+  const matchesActiveGroup = (r) => {
+    if (!isSprintReviewScope) return true;
+    if (!activeGroupMembers) return false;
+    return activeGroupMembers.has(`${r.owner || ''}:${r.id}`);
+  };
 
   const q = state.allReportsQuery.trim().toLowerCase();
   const from = state.allReportsDateFrom;
@@ -3328,15 +3377,45 @@ function renderAllReportsView() {
   const ownReports = (ownerSel && ownerSel !== '__self' && ownerSel !== '')
     ? []
     : state.allReports.filter(
-        (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to)
+        (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to) &&
+               matchesActiveGroup(r)
       );
   const teamReports = teamOn()
     ? state.team.merged.reports.filter(
         (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to) &&
-               (!ownerSel || ownerSel === r.owner)
+               (!ownerSel || ownerSel === r.owner) &&
+               matchesActiveGroup(r)
       )
     : [];
-  const filtered = ownReports.concat(teamReports);
+  // 활성 그룹의 멤버 중 live 로 fetch 되지 않는 항목(작성자 오프라인 등)은
+  // snapshot fallback 으로 합성해서 보여준다.
+  let synthesized = [];
+  if (isSprintReviewScope && activeGroupMembers) {
+    const seenKeys = new Set();
+    for (const r of ownReports) seenKeys.add(`${r.owner || ''}:${r.id}`);
+    for (const r of teamReports) seenKeys.add(`${r.owner || ''}:${r.id}`);
+    for (const key of activeGroupMembers) {
+      if (seenKeys.has(key)) continue;
+      const snap = activeGroupSnapshotMap.get(key);
+      if (!snap) continue;
+      // 검색·날짜 필터 적용
+      const idx = key.indexOf(':');
+      const owner = key.slice(0, idx);
+      const id = Number(key.slice(idx + 1));
+      const synth = {
+        id, owner, snapshot_only: true,
+        report_date: snap.report_date,
+        body: snap.body,
+        categories: [], schedules: [], attachments: [], comments: [],
+      };
+      if (!reportMatchesQuery(synth, q)) continue;
+      if (!reportInDateRange(synth, from, to)) continue;
+      if (ownerSel && ownerSel !== '' && ownerSel !== '__self' && ownerSel !== owner) continue;
+      if (ownerSel === '__self' && owner) continue;
+      synthesized.push(synth);
+    }
+  }
+  const filtered = ownReports.concat(teamReports).concat(synthesized);
 
   const filterActive = Boolean(q || from || to);
   els.allReportsSummary.textContent = filterActive
@@ -3458,13 +3537,26 @@ function renderAllReportsView() {
       ? `<div class="report-item-schedules">${schedPills}${offModeBadges}</div>`
       : '';
 
+    // Sprint-review 선택 모드 (전체 리포트 scope) — 행 좌측에 체크박스.
+    const sprintMode = state.scope === 'all-reports' && state.sprintReview.mode;
+    const reportKey = `${r.owner || ''}:${r.id}`;
+    const checkboxHtml = sprintMode
+      ? `<input type="checkbox" class="sprint-review-check" data-report-key="${escapeHtml(reportKey)}"${state.sprintReview.selected.has(reportKey) ? ' checked' : ''} />`
+      : '';
+    // 스냅샷 전용(원본 작성자 오프라인) 표시
+    const snapshotBadge = r.snapshot_only
+      ? `<span class="muted" title="원본 작성자가 오프라인 — 스프린트 리뷰 시점의 사본을 보여줍니다">· 스냅샷</span>`
+      : '';
+
     li.innerHTML = `
+      ${checkboxHtml}
       ${schedulesHtml}
       <div class="report-item-body">${previewHtml}</div>
       <div class="report-item-meta">
         ${attChips || '<span class="muted">첨부 없음</span>'}
         ${otherTags ? `<span class="other-tags">${otherTags}</span>` : ''}
         ${teamOwnerSuffix(r.owner)}
+        ${snapshotBadge}
       </div>
     `;
     return li;
@@ -3638,6 +3730,7 @@ els.allReportsDateClear.addEventListener('click', () => {
 // attachment link inside).
 els.allReportsContent.addEventListener('click', (e) => {
   if (e.target.closest('a')) return;
+  if (e.target.matches('input.sprint-review-check')) return;
   const li = e.target.closest('li[data-report-id]');
   if (!li) return;
   const id = Number(li.dataset.reportId);
@@ -3653,6 +3746,229 @@ els.allReportsContent.addEventListener('click', (e) => {
   const r = state.allReports.find((x) => x.id === id);
   if (r) openReportModal(r);
 });
+
+// ---------- Sprint review ----------
+
+async function loadSprintGroups() {
+  try {
+    state.sprintGroups = await api('GET', '/api/sprint-groups');
+  } catch {
+    state.sprintGroups = [];
+  }
+}
+
+async function selectSprintReviewView() {
+  state.scope = 'sprint-review';
+  state.selectedCategoryId = null;
+  state.expandConnected = false;
+  // 진입 시 선택/모드 초기화
+  state.sprintReview.mode = false;
+  state.sprintReview.selected.clear();
+  renderCategories();
+  await Promise.all([loadAllReports(), loadSprintGroups()]);
+  // 활성 그룹이 사라졌으면 첫 그룹으로 폴백, 처음 진입이면 첫 그룹 자동 선택
+  const allKeys = state.sprintGroups.map((g) => `${g.creator}:${g.id}`);
+  if (
+    !state.activeSprintGroupKey ||
+    !allKeys.includes(state.activeSprintGroupKey)
+  ) {
+    state.activeSprintGroupKey = allKeys[0] || null;
+  }
+  renderCategoryView();
+}
+
+function syncSprintReviewToolbar() {
+  const toggleBtn = els.sprintReviewToggleBtn;
+  const confirmBtn = els.sprintReviewConfirmBtn;
+  if (!toggleBtn || !confirmBtn) return;
+  toggleBtn.classList.toggle('active', state.sprintReview.mode);
+  toggleBtn.textContent = state.sprintReview.mode
+    ? '스프린트 리뷰 종료'
+    : '스프린트 리뷰';
+  confirmBtn.classList.toggle('hidden', !state.sprintReview.mode);
+}
+
+// 본인 self.name — 본인 그룹은 creator 가 이 이름과 같은 항목.
+function selfDisplayName() {
+  return (state.team && state.team.self && state.team.self.name) || '';
+}
+
+function renderSprintReviewGroupChips() {
+  const root = els.sprintReviewGroups;
+  if (!root) return;
+  if (state.scope !== 'sprint-review') {
+    root.classList.add('hidden');
+    return;
+  }
+  root.classList.remove('hidden');
+  root.innerHTML = '';
+  if (state.sprintGroups.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'muted-empty';
+    empty.textContent = '아직 만들어진 스프린트 그룹이 없습니다. 전체 리포트에서 「스프린트 리뷰」 모드로 그룹을 만들어보세요.';
+    root.appendChild(empty);
+    return;
+  }
+  const me = selfDisplayName();
+  for (const g of state.sprintGroups) {
+    const chip = document.createElement('span');
+    chip.className = 'sprint-group-chip';
+    const key = `${g.creator}:${g.id}`;
+    if (key === state.activeSprintGroupKey) chip.classList.add('active');
+    chip.dataset.groupKey = key;
+    const isOwn = g.creator === me;
+    const ownerLabel = isOwn ? '' : `<span class="owner">@ ${escapeHtml(g.creator || '?')}</span>`;
+    const delBtn = isOwn
+      ? `<span class="delete" data-action="delete-sprint-group" title="그룹 삭제">×</span>`
+      : '';
+    chip.innerHTML = `
+      <span class="name">${escapeHtml(g.name)}</span>
+      ${ownerLabel}
+      <span class="count">(${g.member_count}건)</span>
+      ${delBtn}
+    `;
+    root.appendChild(chip);
+  }
+}
+
+if (els.sprintReviewGroups) {
+  els.sprintReviewGroups.addEventListener('click', async (e) => {
+    const delBtn = e.target.closest('[data-action="delete-sprint-group"]');
+    if (delBtn) {
+      const chip = delBtn.closest('.sprint-group-chip');
+      const key = chip && chip.dataset.groupKey;
+      const g = state.sprintGroups.find((x) => `${x.creator}:${x.id}` === key);
+      if (!g) return;
+      // 본인 그룹만 삭제 가능 — UI 에서 본인 chip 에만 × 가 붙음.
+      if (g.creator !== selfDisplayName()) return;
+      if (!confirm(`「${g.name}」을 삭제할까요? 그룹에 속한 리포트 자체는 삭제되지 않습니다.`)) return;
+      try {
+        await api('DELETE', `/api/sprint-groups/${g.id}`);
+      } catch (err) {
+        alert('그룹 삭제 실패: ' + (err && err.message));
+        return;
+      }
+      if (state.activeSprintGroupKey === key) state.activeSprintGroupKey = null;
+      await loadSprintGroups();
+      if (!state.activeSprintGroupKey && state.sprintGroups[0]) {
+        state.activeSprintGroupKey = `${state.sprintGroups[0].creator}:${state.sprintGroups[0].id}`;
+      }
+      renderAllReportsView();
+      return;
+    }
+    const chip = e.target.closest('.sprint-group-chip');
+    if (!chip) return;
+    state.activeSprintGroupKey = chip.dataset.groupKey;
+    renderAllReportsView();
+  });
+}
+
+if (els.sprintReviewBtn) {
+  els.sprintReviewBtn.addEventListener('click', () => {
+    selectSprintReviewView();
+  });
+}
+
+if (els.sprintReviewToggleBtn) {
+  els.sprintReviewToggleBtn.addEventListener('click', () => {
+    state.sprintReview.mode = !state.sprintReview.mode;
+    if (!state.sprintReview.mode) state.sprintReview.selected.clear();
+    renderAllReportsView();
+  });
+}
+
+if (els.sprintReviewConfirmBtn) {
+  els.sprintReviewConfirmBtn.addEventListener('click', () => {
+    if (state.sprintReview.selected.size === 0) {
+      alert('체크박스로 한 개 이상의 리포트를 선택해주세요.');
+      return;
+    }
+    openSprintGroupModal();
+  });
+}
+
+if (els.allReportsContent) {
+  els.allReportsContent.addEventListener('change', (e) => {
+    const cb = e.target.closest('input.sprint-review-check');
+    if (!cb) return;
+    const key = cb.dataset.reportKey;
+    if (cb.checked) state.sprintReview.selected.add(key);
+    else state.sprintReview.selected.delete(key);
+    // 같은 리포트가 여러 카테고리 섹션에 등장하는 경우 모두 동기화
+    els.allReportsContent
+      .querySelectorAll(`input.sprint-review-check[data-report-key="${CSS.escape(key)}"]`)
+      .forEach((c) => { c.checked = cb.checked; });
+  });
+}
+
+function openSprintGroupModal() {
+  if (!els.sprintGroupModal) return;
+  els.sprintGroupForm.reset();
+  if (els.sprintGroupModalHint) {
+    els.sprintGroupModalHint.textContent =
+      `선택한 ${state.sprintReview.selected.size}건의 리포트를 새 그룹으로 묶습니다.`;
+  }
+  els.sprintGroupModal.classList.remove('hidden');
+  setTimeout(() => {
+    const input = els.sprintGroupForm.querySelector('input[name="name"]');
+    if (input) input.focus();
+  }, 0);
+}
+
+function closeSprintGroupModal() {
+  if (els.sprintGroupModal) els.sprintGroupModal.classList.add('hidden');
+}
+
+// 선택한 composite key → 그 리포트의 현재 body·date 를 찾아 snapshot 으로 첨부.
+// 본인 리포트는 state.allReports, peer 리포트는 state.team.merged.reports 에서 lookup.
+function snapshotForKey(key) {
+  const idx = key.indexOf(':');
+  const owner = key.slice(0, idx);
+  const report_id = Number(key.slice(idx + 1));
+  let r;
+  if (owner === '') {
+    r = state.allReports.find((x) => x.id === report_id);
+  } else {
+    r = state.team.merged.reports.find((x) => x.owner === owner && x.id === report_id);
+  }
+  return {
+    report_id,
+    owner,
+    snapshot_date: (r && r.report_date) || '',
+    snapshot_body: (r && r.body) || '',
+  };
+}
+
+if (els.sprintGroupForm) {
+  els.sprintGroupForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = (new FormData(els.sprintGroupForm).get('name') || '').toString().trim();
+    if (!name) return;
+    const members = [...state.sprintReview.selected].map(snapshotForKey);
+    try {
+      await api('POST', '/api/sprint-groups', { name, members });
+    } catch (err) {
+      if (err && err.status === 409) {
+        alert(`이미 존재하는 그룹 이름입니다: "${name}". 다른 이름을 사용해주세요.`);
+      } else {
+        alert('그룹 생성 실패: ' + (err && err.message));
+      }
+      return;
+    }
+    closeSprintGroupModal();
+    state.sprintReview.mode = false;
+    state.sprintReview.selected.clear();
+    await loadSprintGroups();
+    renderAllReportsView();
+  });
+}
+
+if (els.sprintGroupModal) {
+  els.sprintGroupModal.addEventListener('click', (e) => {
+    if (e.target === els.sprintGroupModal) closeSprintGroupModal();
+    if (e.target.matches('[data-close]')) closeSprintGroupModal();
+  });
+}
 
 function openTeamReportViewer(r) {
   const m = document.getElementById('team-report-viewer-modal');

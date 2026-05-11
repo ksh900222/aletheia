@@ -9,6 +9,7 @@ const dependenciesRouter = require('./routes/dependencies');
 const reportsRouter = require('./routes/reports');
 const attachmentsRouter = require('./routes/attachments');
 const tasksRouter = require('./routes/tasks');
+const sprintGroupsRouter = require('./routes/sprint_groups');
 const scheduler = require('./engine/scheduler');
 const holidays = require('./holidays');
 const teamSettings = require('./team/settings');
@@ -85,6 +86,7 @@ app.use('/api/dependencies', dependenciesRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api', attachmentsRouter); // exposes /api/reports/:id/attachments/* and /api/attachments/:id
 app.use('/api/tasks', tasksRouter);
+app.use('/api/sprint-groups', sprintGroupsRouter);
 
 app.post('/api/recompute', (req, res) => {
   res.json(scheduler.recomputeAll());
