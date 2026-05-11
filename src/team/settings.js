@@ -82,4 +82,15 @@ function setSelfName(name) {
   return cached.self.name;
 }
 
-module.exports = { load, get, save, setSelfName, SETTINGS_PATH };
+// Update the team-wide pre-shared token (memory + disk). Lets the operator
+// rotate it from the UI without ever opening team_settings.json. Token is
+// not trimmed via .trim() because leading/trailing whitespace in a secret
+// could be intentional, but we do require a non-empty string at the route.
+function setSharedToken(token) {
+  if (!cached) load();
+  cached.sharedToken = String(token);
+  save();
+  return cached.sharedToken;
+}
+
+module.exports = { load, get, save, setSelfName, setSharedToken, SETTINGS_PATH };

@@ -367,6 +367,22 @@ router.post('/peer-edit', localOnly, (req, res) => {
   res.json({ ok: true, peer: e });
 });
 
+// Read / write the shared team token from the UI. localOnly so the value
+// never leaks beyond the operator's own machine. Mutation takes effect on
+// the next cross-peer request — no server restart needed since the route
+// handlers and sync loop both call settings.get() each request.
+router.get('/token', localOnly, (req, res) => {
+  res.json({ token: settings.get().sharedToken || '' });
+});
+
+router.post('/set-token', localOnly, (req, res) => {
+  const token = String((req.body && req.body.token) || '');
+  if (!token.trim()) return res.status(400).json({ error: 'empty_token' });
+  if (token.length > 200) return res.status(400).json({ error: 'token_too_long' });
+  settings.setSharedToken(token);
+  res.json({ ok: true });
+});
+
 // Rename self via UI. Updates settings.self.name (memory + team_settings.json
 // on disk), then re-runs ensureSelfPeer so the local peer list reflects the
 // new name. The peerStore upserts trigger broadcaster fan-out, so other peers
