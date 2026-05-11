@@ -204,10 +204,31 @@ router.put('/:id', (req, res) => {
       deleteReportSchedules.run(id);
       for (const sid of scheduleIds) insertReportSchedule.run(id, sid);
     }
+    // 본인 리포트가 수정되면, 본인이 만든 스프린트 그룹 중 이 리포트를
+    // 멤버로 가진 그룹들의 snapshot 을 새 본문으로 갱신한다. group 의
+    // updated_at 도 함께 bump 해서 다음 sync 때 peer 들에게 전파.
+    refreshOwnGroupSnapshotsForReport(id, newDate, newBody);
   })();
 
   res.json(decorate(getReport.get(id)));
 });
+
+const refreshSnapshotByReportStmt = db.prepare(
+  `UPDATE sprint_group_members
+      SET snapshot_date = ?, snapshot_body = ?, snapshot_updated_at = datetime('now')
+    WHERE group_creator = '' AND report_owner = '' AND report_id = ?`
+);
+const bumpOwnGroupsForReportStmt = db.prepare(
+  `UPDATE sprint_groups SET updated_at = datetime('now')
+    WHERE creator = '' AND id IN (
+      SELECT DISTINCT group_id FROM sprint_group_members
+       WHERE group_creator = '' AND report_owner = '' AND report_id = ?
+    )`
+);
+function refreshOwnGroupSnapshotsForReport(reportId, newDate, newBody) {
+  const info = refreshSnapshotByReportStmt.run(newDate || '', newBody || '', reportId);
+  if (info.changes > 0) bumpOwnGroupsForReportStmt.run(reportId);
+}
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);

@@ -758,6 +758,63 @@ html, body {
 body.scope-all .all-view-only { display: table-cell; }
 body.scope-all .cat-only { display: none !important; }
 
+/* 전체 리포트 vs 스프린트 리뷰 toolbar visibility — both scopes share the
+   same #all-reports-view DOM. */
+.in-all-reports-only { display: none !important; }
+body.scope-all-reports .in-all-reports-only { display: inline-flex !important; }
+body.scope-all-reports .in-all-reports-only.hidden { display: none !important; }
+.in-sprint-review-only { display: none !important; }
+body.scope-sprint-review .in-sprint-review-only { display: block !important; }
+body.scope-sprint-review .in-sprint-review-only.hidden { display: none !important; }
+
+.all-reports-list li .sprint-review-check {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.sprint-review-check { transform: scale(1.15); cursor: pointer; }
+
+#sprint-review-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sprint-group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.sprint-group-chip:hover { background: var(--panel-hover, #2a2f3a); }
+.sprint-group-chip.active {
+  background: var(--accent, #4f8cff);
+  color: #fff;
+  border-color: var(--accent, #4f8cff);
+}
+.sprint-group-chip .count { font-size: 11px; opacity: 0.75; }
+.sprint-group-chip .owner { font-size: 11px; opacity: 0.7; }
+.sprint-group-chip .delete {
+  margin-left: 4px;
+  opacity: 0.5;
+  cursor: pointer;
+  font-weight: bold;
+}
+.sprint-group-chip .delete:hover { opacity: 1; color: var(--danger, #e35454); }
+#sprint-review-groups .muted-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
 /* ----- All-reports view ----- */
 #all-reports-view .section-head input[type="search"] { width: 260px; }
 .all-reports-toolbar {

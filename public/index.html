@@ -36,6 +36,7 @@
     <aside class="sidebar">
       <button id="all-view-btn" class="all-view-btn">전체 간트</button>
       <button id="all-reports-btn" class="all-view-btn">전체 리포트</button>
+      <button id="sprint-review-btn" class="all-view-btn">스프린트 리뷰</button>
       <div class="section-head">
         <h2>카테고리</h2>
         <button id="add-category-btn" class="btn btn-primary">+ 추가</button>
@@ -68,9 +69,12 @@
             </label>
             <button type="button" id="all-reports-date-clear" class="btn" title="날짜 범위 해제">날짜 해제</button>
             <button type="button" id="all-reports-by-schedule-btn" class="btn" title="카테고리 안에서 스케줄별 → 날짜별 순으로 그룹">스케줄별 OFF</button>
+            <button type="button" id="sprint-review-confirm-btn" class="btn btn-primary hidden in-all-reports-only" title="선택한 리포트들을 스프린트 그룹으로 저장">확인</button>
+            <button type="button" id="sprint-review-toggle-btn" class="btn in-all-reports-only" title="리포트 좌측에 체크박스를 표시하여 그룹 생성">스프린트 리뷰</button>
             <input id="all-reports-search" type="search" placeholder="본문/날짜/태그/스케줄 검색..." />
           </div>
         </div>
+        <div id="sprint-review-groups" class="in-sprint-review-only hidden"></div>
         <div id="all-reports-content"></div>
       </div>
 
@@ -171,6 +175,21 @@
   </main>
 
   <!-- Category modal -->
+  <!-- Sprint review group create modal -->
+  <div id="sprint-group-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>스프린트 리뷰 그룹 생성</h3>
+      <form id="sprint-group-form">
+        <label>그룹 이름<input name="name" required maxlength="200" autocomplete="off" placeholder="예: Sprint 12" /></label>
+        <p id="sprint-group-modal-hint" class="muted" style="margin: 6px 0;"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">확인</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="category-modal" class="modal hidden">
     <div class="modal-card">
       <h3 id="category-modal-title">카테고리 추가</h3>
