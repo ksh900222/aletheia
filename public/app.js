@@ -3845,13 +3845,17 @@ function renderSprintReviewGroupChips() {
     if (key === state.activeSprintGroupKey) chip.classList.add('active');
     chip.dataset.groupKey = key;
     const isOwn = g.creator === me;
-    const ownerLabel = isOwn ? '' : `<span class="owner">@ ${escapeHtml(g.creator || '?')}</span>`;
+    // 이름 뒤에 만든 사람을 접미사로 붙여 chip 하나에서 출처 식별 가능.
+    // creator 가 비어 있으면 (self.name 미설정 등) suffix 생략.
+    const creatorName = g.creator || '';
+    const displayName = creatorName
+      ? `${g.name}_${creatorName}`
+      : g.name;
     const delBtn = isOwn
       ? `<span class="delete" data-action="delete-sprint-group" title="그룹 삭제">×</span>`
       : '';
     chip.innerHTML = `
-      <span class="name">${escapeHtml(g.name)}</span>
-      ${ownerLabel}
+      <span class="name">${escapeHtml(displayName)}</span>
       <span class="count">(${g.member_count}건)</span>
       ${delBtn}
     `;
