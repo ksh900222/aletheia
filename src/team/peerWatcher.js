@@ -40,6 +40,28 @@ function isSelfEntry(p) {
   return getLocalIPs().has(String(p.host));
 }
 
+// Pick the LAN IPv4 most likely to be how other peers reach this PC. Prefers
+// 10.x / 192.168.x (typical office/home), falls back to any non-internal v4.
+// Skips link-local (169.254.x) and Docker-style 172.16-31.x on first pass.
+function pickPrimaryLanIp() {
+  const ifaces = os.networkInterfaces();
+  const collect = (filter) => {
+    for (const name of Object.keys(ifaces)) {
+      for (const addr of ifaces[name] || []) {
+        if (!addr || addr.family !== 'IPv4' || addr.internal) continue;
+        if (addr.address.startsWith('169.254.')) continue;
+        if (filter(addr.address)) return addr.address;
+      }
+    }
+    return null;
+  };
+  return (
+    collect((ip) => ip.startsWith('10.') || ip.startsWith('192.168.')) ||
+    collect(() => true) ||
+    null
+  );
+}
+
 const LEGACY_CSV_PATH = process.env.TEAM_PEERS_CSV
   ? path.resolve(process.env.TEAM_PEERS_CSV)
   : path.resolve(__dirname, '..', '..', 'data', 'team_peers.csv');
@@ -131,11 +153,66 @@ function start() {
   lastReloadedAt = new Date().toISOString();
 }
 
+// Ensure the operator's own machine appears in the peer list, marked as self
+// (isSelf=true via isSelfEntry). Called once at boot from server.js. The peer
+// list — not team_settings.json — is the canonical place users look at to see
+// "who is who", so without this the operator never sees themselves there.
+//
+// Behavior:
+//  1. Detect primary LAN IPv4 + use settings.self.port + settings.self.name.
+//  2. Remove any stale "self-shaped" rows whose host is a local IP and port
+//     matches selfPort but whose name differs (leftover from prior renames).
+//  3. Upsert the canonical self row { name, host: lanIp, port: selfPort }.
+//
+// Each upsert/remove fires the peerBroadcaster onChange hook (if init() ran
+// first), so a rename here also propagates outward to other peers — fixing
+// the recurring origin_mismatch caused by stale names on remote lists.
+function ensureSelfPeer() {
+  const cfg = settings.get();
+  const selfName = String(cfg.self.name || '').trim();
+  const selfPort = Number(cfg.self.port);
+  if (!selfName) {
+    console.warn('[team] ensureSelfPeer: settings.self.name 비어있음 — skip');
+    return;
+  }
+  if (!Number.isInteger(selfPort) || selfPort < 1 || selfPort > 65535) {
+    console.warn(`[team] ensureSelfPeer: self.port 무효(${cfg.self.port}) — skip`);
+    return;
+  }
+  const lanIp = pickPrimaryLanIp();
+  if (!lanIp) {
+    console.warn('[team] ensureSelfPeer: 외부망 IPv4 감지 실패 — skip');
+    return;
+  }
+  // Strip stale self-shaped rows whose name diverged from current self.name.
+  // (Prevents two rows pointing at our address from coexisting; also tells
+  //  remote peers to drop the old name via the broadcaster hook.)
+  const localIPs = getLocalIPs();
+  for (const p of peerStore.list()) {
+    if (Number(p.port) !== selfPort) continue;
+    if (!localIPs.has(String(p.host))) continue;
+    if (p.name === selfName) continue;
+    console.log(`[team] ensureSelfPeer: stale self 항목 제거 '${p.name}' @ ${p.host}:${p.port}`);
+    peerStore.remove(p.name);
+  }
+  // Now ensure the canonical row exists with the right host/port.
+  const existing = peerStore.get(selfName);
+  if (existing && existing.host === lanIp && Number(existing.port) === selfPort) {
+    return; // already correct, no-op
+  }
+  if (existing) {
+    console.log(`[team] ensureSelfPeer: '${selfName}' 주소 갱신 ${existing.host}:${existing.port} -> ${lanIp}:${selfPort}`);
+  } else {
+    console.log(`[team] ensureSelfPeer: self 항목 추가 '${selfName}' @ ${lanIp}:${selfPort}`);
+  }
+  peerStore.upsert({ name: selfName, host: lanIp, port: selfPort });
+}
+
 function stop() { /* no-op — DB connection lives for process lifetime */ }
 function reload() { /* no-op — peerStore is the source of truth */ }
 
 module.exports = {
-  start, stop, reload,
+  start, stop, reload, ensureSelfPeer,
   getPeers, getErrors, getStatus,
   onChange, onError,
   reportErrors,

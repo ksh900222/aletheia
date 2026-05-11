@@ -128,6 +128,12 @@ holidays.scheduleDaily();
 teamSettings.load();
 peerWatcher.start();
 peerBroadcaster.init();
+// Auto-add the operator's own machine to the peer list (host = primary LAN
+// IP, port = self.port, name = self.name) and mark stale self-shaped rows
+// for cleanup. Runs AFTER broadcaster.init so any changes also propagate
+// outward (a rename here cascades to remote peer lists, fixing the recurring
+// origin_mismatch caused by stale names elsewhere).
+peerWatcher.ensureSelfPeer();
 // Boot-time announcement: push my current peer list to every peer once. This
 // catches peers that were offline when I made local changes, and bootstraps
 // new instances that don't yet know what I know. Fire-and-forget — failures
