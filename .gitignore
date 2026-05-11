@@ -3,9 +3,11 @@ data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/backups/
 uploads/
 .DS_Store
 .env
+tmp/
 .claude/
 git-github-guide.html
 data/holidays.json
@@ -13,3 +15,19 @@ data/team_peers.csv
 data/team_settings.json
 md/
 design_md/
+
+# ICS/SharePoint 자동화 도구 - 인증 관련 (git push 금지)
+tools/ics/auth/
+tools/ics/.env
+tools/ics/debug/
+tools/ics/docs/*
+!tools/ics/docs/ics_password_update.md
+!tools/ics/docs/ics_teams_chat_automation_report.md
+tools/ics/last_page.html
+tools/sharepoint/auth/
+tools/sharepoint/.env
+tools/sharepoint/debug/
+
+# Python cache
+__pycache__/
+*.pyc

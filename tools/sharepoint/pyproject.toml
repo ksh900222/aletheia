@@ -1,0 +1,10 @@
+[project]
+name = "sharepoint-tools"
+version = "0.1.0"
+description = "LG이노텍 SharePoint/Teams 자동화 도구"
+requires-python = ">=3.11"
+dependencies = [
+    "keyring>=25.0.0",
+    "playwright>=1.58.0",
+    "python-dotenv>=1.0.0",
+]
