@@ -367,6 +367,39 @@ router.post('/peer-edit', localOnly, (req, res) => {
   res.json({ ok: true, peer: e });
 });
 
+// Rename self via UI. Updates settings.self.name (memory + team_settings.json
+// on disk), then re-runs ensureSelfPeer so the local peer list reflects the
+// new name. The peerStore upserts trigger broadcaster fan-out, so other peers
+// learn about the rename automatically and origin_mismatch does not recur.
+//
+// Only the name changes — host/port for the self entry are derived from the
+// machine's network interfaces and listening port, so editing them via UI
+// makes no sense.
+router.post('/self-rename', localOnly, (req, res) => {
+  const newName = String((req.body && req.body.name) || '').trim();
+  if (!newName) return res.status(400).json({ error: 'empty_name' });
+  if (newName.length > 100) return res.status(400).json({ error: 'name_too_long' });
+  const oldName = String(settings.get().self.name || '').trim();
+  if (newName === oldName) return res.json({ ok: true, name: newName, unchanged: true });
+  // Block collision with a non-self peer entry (would clobber that row since
+  // peerStore keys by name).
+  const collides = peerWatcher.getPeers().some(
+    (p) => p.name === newName && !peerWatcher.isSelfEntry(p)
+  );
+  if (collides) {
+    return res.status(409).json({
+      error: 'name_collision',
+      detail: `'${newName}' 은 이미 다른 팀원 항목에서 사용 중`,
+    });
+  }
+  settings.setSelfName(newName);
+  // ensureSelfPeer removes the stale self row (oldName) and inserts the new
+  // canonical row. Each peerStore mutation fires the broadcaster hook → other
+  // peers receive remove(oldName) + upsert(newName) and update their lists.
+  peerWatcher.ensureSelfPeer();
+  res.json({ ok: true, name: newName, oldName });
+});
+
 router.post('/peer-remove', localOnly, (req, res) => {
   const name = (req.body && req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'missing_name' });

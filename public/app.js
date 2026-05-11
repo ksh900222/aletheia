@@ -4572,7 +4572,8 @@ async function refreshTeamManageList() {
       ? `<span class="display-name">${escapeHtml(p.name)}</span> <span class="team-self-badge">본인</span>`
       : `<span class="display-name">${escapeHtml(p.name)}</span>`;
     const actionsCell = p.isSelf
-      ? `<span class="muted" style="font-size:11px;">자동 감지</span>`
+      ? `<button class="btn" data-action="self-rename">이름 변경</button>
+         <span class="muted" style="font-size:11px;">IP·포트는 자동</span>`
       : `<button class="btn" data-action="edit">편집</button>
          <button class="btn btn-danger" data-action="remove">삭제</button>`;
     tr.innerHTML = `
@@ -4638,6 +4639,35 @@ if (teamManageEls.rows) {
         await refreshTeamManageList();
       } catch (e) {
         showToast(`삭제 오류: ${e.message}`, 'error');
+      }
+    } else if (action === 'self-rename') {
+      const original = tr.dataset.name;
+      const newName = window.prompt(
+        '새 이름을 입력하세요. (이 변경은 team_settings.json 에 저장되고 다른 팀원들에게도 자동 전파됩니다.)',
+        original
+      );
+      if (newName === null) return;
+      const trimmed = String(newName).trim();
+      if (!trimmed) {
+        showToast('이름이 비어 있습니다.', 'error');
+        return;
+      }
+      if (trimmed === original) return;
+      try {
+        const res = await fetch('/api/team/self-rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`이름 변경 실패: ${err.detail || err.error || res.status}`, 'error');
+          return;
+        }
+        showToast(`'${trimmed}' 으로 변경됨`);
+        await refreshTeamManageList();
+      } catch (e) {
+        showToast(`오류: ${e.message}`, 'error');
       }
     } else if (action === 'edit') {
       const original = tr.dataset.name;
