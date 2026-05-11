@@ -18,9 +18,12 @@ const state = {
   redoStack: [],          // mirror; cleared whenever a new tracked action happens
   reportQuery: '',        // free-text filter for reports (per-category panel)
   allOwner: '',           // 전체 간트 owner filter: '' = all, '__self' = own only, '<peerName>' = that peer
-  sprintReview: {         // 전체 리포트 의 「스프린트 리뷰」 선택 모드 상태
+  sprintReview: {         // 「선택」 모드 상태
     mode: false,
-    selected: new Set(),  // composite keys "<owner>:<reportId>"
+    selected: new Set(),  // composite keys "<owner>:<reportId>" — 현재 체크된 항목들
+    // 스프린트 리뷰 scope 에서 편집 모드 진입 시 원래 멤버 set 을 기억해 둔다.
+    // 「선택 확인」 클릭 시 originalMembers - selected = 제거할 멤버.
+    originalMembers: null,
   },
   sprintGroups: [],       // /api/sprint-groups 응답: 본인 + replicated peer 그룹. 각 g 는
                           // {creator, id, name, member_count, members:[{report_id,report_owner,snapshot_date,snapshot_body,...}]}
@@ -67,6 +70,7 @@ const els = {
   dependencyCreateForm: $('#dependency-create-form'),
   allViewBtn: $('#all-view-btn'),
   allReportsBtn: $('#all-reports-btn'),
+  allReportsTitle: $('#all-reports-title'),
   sprintReviewBtn: $('#sprint-review-btn'),
   sprintReviewToggleBtn: $('#sprint-review-toggle-btn'),
   sprintReviewGroups: $('#sprint-review-groups'),
@@ -2176,6 +2180,10 @@ async function selectAllReportsView() {
   state.scope = 'all-reports';
   state.selectedCategoryId = null;
   state.expandConnected = false;
+  // scope 진입 시 「선택」 모드 초기화 — 이전 scope 에서 들어온 상태가 섞이지 않도록.
+  state.sprintReview.mode = false;
+  state.sprintReview.selected.clear();
+  state.sprintReview.originalMembers = null;
   renderCategories();
   await loadAllReports();
   renderCategoryView();
@@ -3536,8 +3544,10 @@ function renderAllReportsView() {
       ? `<div class="report-item-schedules">${schedPills}${offModeBadges}</div>`
       : '';
 
-    // Sprint-review 선택 모드 (전체 리포트 scope) — 행 좌측에 체크박스.
-    const sprintMode = state.scope === 'all-reports' && state.sprintReview.mode;
+    // Sprint-review 선택 모드 — 행 좌측에 체크박스. 전체 리포트 와
+    // 스프린트 리뷰 양쪽에서 동작 (체크 의미는 scope 별로 다름).
+    const sprintMode = state.sprintReview.mode &&
+      (state.scope === 'all-reports' || state.scope === 'sprint-review');
     const reportKey = `${r.owner || ''}:${r.id}`;
     const checkboxHtml = sprintMode
       ? `<input type="checkbox" class="sprint-review-check" data-report-key="${escapeHtml(reportKey)}"${state.sprintReview.selected.has(reportKey) ? ' checked' : ''} />`
@@ -3769,6 +3779,7 @@ async function selectSprintReviewView() {
   // 진입 시 선택/모드 초기화
   state.sprintReview.mode = false;
   state.sprintReview.selected.clear();
+  state.sprintReview.originalMembers = null;
   renderCategories();
   await Promise.all([loadAllReports(), loadSprintGroups()]);
   // 활성 그룹이 사라졌으면 첫 그룹으로 폴백, 처음 진입이면 첫 그룹 자동 선택
@@ -3784,9 +3795,25 @@ async function selectSprintReviewView() {
 
 function syncSprintReviewToolbar() {
   const toggleBtn = els.sprintReviewToggleBtn;
+  if (els.allReportsTitle) {
+    els.allReportsTitle.textContent =
+      state.scope === 'sprint-review' ? '스프린트 리뷰' : '전체 리포트';
+  }
   if (!toggleBtn) return;
   toggleBtn.classList.toggle('active', state.sprintReview.mode);
   toggleBtn.textContent = state.sprintReview.mode ? '선택 확인' : '선택';
+  // 스프린트 리뷰 scope 에서는 본인 소유 그룹이 활성일 때만 「선택」 노출.
+  // peer 그룹은 본인이 편집할 수 없으므로 버튼을 숨긴다. 전체 리포트 에서는 항상 노출.
+  if (state.scope === 'sprint-review') {
+    const me = selfDisplayName();
+    const grp = state.activeSprintGroupKey
+      ? state.sprintGroups.find((g) => `${g.creator}:${g.id}` === state.activeSprintGroupKey)
+      : null;
+    const editable = !!grp && grp.creator === me;
+    toggleBtn.classList.toggle('hidden', !editable);
+  } else {
+    toggleBtn.classList.remove('hidden');
+  }
 }
 
 // 본인 self.name — 본인 그룹은 creator 가 이 이름과 같은 항목.
@@ -3860,6 +3887,10 @@ if (els.sprintReviewGroups) {
     const chip = e.target.closest('.sprint-group-chip');
     if (!chip) return;
     state.activeSprintGroupKey = chip.dataset.groupKey;
+    // 그룹 전환 시 진행 중인 「선택」 편집 모드는 취소.
+    state.sprintReview.mode = false;
+    state.sprintReview.selected.clear();
+    state.sprintReview.originalMembers = null;
     renderAllReportsView();
   });
 }
@@ -3871,15 +3902,20 @@ if (els.sprintReviewBtn) {
 }
 
 if (els.sprintReviewToggleBtn) {
-  els.sprintReviewToggleBtn.addEventListener('click', () => {
-    // 모드 ON 상태(=「선택 확인」) 에서 한 개 이상 체크돼 있으면 저장 모달.
-    // 아무것도 체크 안 한 상태면 모드 종료(=취소). OFF→ON 진입은 그냥 토글.
+  els.sprintReviewToggleBtn.addEventListener('click', async () => {
+    // 「선택」 동작은 scope 에 따라 달라진다.
+    //   전체 리포트: 빈 set 으로 시작 → 확인 시 새 그룹 저장 모달
+    //   스프린트 리뷰: 현재 그룹 멤버를 pre-check → 확인 시 체크 해제된 항목만 그룹에서 제거
+    if (state.scope === 'sprint-review') {
+      await handleSprintReviewToggleInGroupView();
+      return;
+    }
+    // 전체 리포트 분기
     if (state.sprintReview.mode) {
       if (state.sprintReview.selected.size > 0) {
         openSprintGroupModal();
         return;
       }
-      // 선택이 비어 있으면 모드 종료
       state.sprintReview.mode = false;
       state.sprintReview.selected.clear();
       renderAllReportsView();
@@ -3888,6 +3924,53 @@ if (els.sprintReviewToggleBtn) {
     state.sprintReview.mode = true;
     renderAllReportsView();
   });
+}
+
+async function handleSprintReviewToggleInGroupView() {
+  const me = selfDisplayName();
+  const grp = state.activeSprintGroupKey
+    ? state.sprintGroups.find((g) => `${g.creator}:${g.id}` === state.activeSprintGroupKey)
+    : null;
+  if (!grp || grp.creator !== me) return; // 안전장치 — 버튼이 보이지 않아야 정상
+
+  if (!state.sprintReview.mode) {
+    // 진입: 현재 그룹 멤버를 모두 pre-check
+    const memberKeys = (grp.members || []).map(
+      (m) => `${m.report_owner || ''}:${m.report_id}`
+    );
+    state.sprintReview.mode = true;
+    state.sprintReview.selected = new Set(memberKeys);
+    state.sprintReview.originalMembers = new Set(memberKeys);
+    renderAllReportsView();
+    return;
+  }
+
+  // 확인: 원본 - 현재선택 = 제거할 멤버
+  const original = state.sprintReview.originalMembers || new Set();
+  const toRemove = [...original].filter((k) => !state.sprintReview.selected.has(k));
+  if (toRemove.length === 0) {
+    // 변경 없음 → 모드 종료
+    state.sprintReview.mode = false;
+    state.sprintReview.selected.clear();
+    state.sprintReview.originalMembers = null;
+    renderAllReportsView();
+    return;
+  }
+  const members = toRemove.map((k) => {
+    const idx = k.indexOf(':');
+    return { owner: k.slice(0, idx), report_id: Number(k.slice(idx + 1)) };
+  });
+  try {
+    await api('POST', `/api/sprint-groups/${grp.id}/remove-members`, { members });
+  } catch (err) {
+    alert('멤버 제거 실패: ' + (err && err.message));
+    return;
+  }
+  state.sprintReview.mode = false;
+  state.sprintReview.selected.clear();
+  state.sprintReview.originalMembers = null;
+  await loadSprintGroups();
+  renderAllReportsView();
 }
 
 // 기존 별도 「확인」 버튼은 사용처가 없어 클릭 핸들러도 제거. DOM 은 hidden 으로 유지.
