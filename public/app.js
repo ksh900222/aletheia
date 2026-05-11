@@ -69,7 +69,6 @@ const els = {
   allReportsBtn: $('#all-reports-btn'),
   sprintReviewBtn: $('#sprint-review-btn'),
   sprintReviewToggleBtn: $('#sprint-review-toggle-btn'),
-  sprintReviewConfirmBtn: $('#sprint-review-confirm-btn'),
   sprintReviewGroups: $('#sprint-review-groups'),
   sprintGroupModal: $('#sprint-group-modal'),
   sprintGroupForm: $('#sprint-group-form'),
@@ -3548,8 +3547,7 @@ function renderAllReportsView() {
       ? `<span class="muted" title="원본 작성자가 오프라인 — 스프린트 리뷰 시점의 사본을 보여줍니다">· 스냅샷</span>`
       : '';
 
-    li.innerHTML = `
-      ${checkboxHtml}
+    const innerHtml = `
       ${schedulesHtml}
       <div class="report-item-body">${previewHtml}</div>
       <div class="report-item-meta">
@@ -3559,6 +3557,13 @@ function renderAllReportsView() {
         ${snapshotBadge}
       </div>
     `;
+    if (sprintMode) {
+      // flex row: 체크박스 ↔ 본문이 좌우 분리. .sprint-row 가 li 에 붙으면 CSS 에서 grid 처리.
+      li.classList.add('sprint-row');
+      li.innerHTML = `${checkboxHtml}<div class="sprint-row-content">${innerHtml}</div>`;
+    } else {
+      li.innerHTML = innerHtml;
+    }
     return li;
   }
 
@@ -3779,13 +3784,9 @@ async function selectSprintReviewView() {
 
 function syncSprintReviewToolbar() {
   const toggleBtn = els.sprintReviewToggleBtn;
-  const confirmBtn = els.sprintReviewConfirmBtn;
-  if (!toggleBtn || !confirmBtn) return;
+  if (!toggleBtn) return;
   toggleBtn.classList.toggle('active', state.sprintReview.mode);
-  toggleBtn.textContent = state.sprintReview.mode
-    ? '스프린트 리뷰 종료'
-    : '스프린트 리뷰';
-  confirmBtn.classList.toggle('hidden', !state.sprintReview.mode);
+  toggleBtn.textContent = state.sprintReview.mode ? '선택 확인' : '선택';
 }
 
 // 본인 self.name — 본인 그룹은 creator 가 이 이름과 같은 항목.
@@ -3871,21 +3872,25 @@ if (els.sprintReviewBtn) {
 
 if (els.sprintReviewToggleBtn) {
   els.sprintReviewToggleBtn.addEventListener('click', () => {
-    state.sprintReview.mode = !state.sprintReview.mode;
-    if (!state.sprintReview.mode) state.sprintReview.selected.clear();
+    // 모드 ON 상태(=「선택 확인」) 에서 한 개 이상 체크돼 있으면 저장 모달.
+    // 아무것도 체크 안 한 상태면 모드 종료(=취소). OFF→ON 진입은 그냥 토글.
+    if (state.sprintReview.mode) {
+      if (state.sprintReview.selected.size > 0) {
+        openSprintGroupModal();
+        return;
+      }
+      // 선택이 비어 있으면 모드 종료
+      state.sprintReview.mode = false;
+      state.sprintReview.selected.clear();
+      renderAllReportsView();
+      return;
+    }
+    state.sprintReview.mode = true;
     renderAllReportsView();
   });
 }
 
-if (els.sprintReviewConfirmBtn) {
-  els.sprintReviewConfirmBtn.addEventListener('click', () => {
-    if (state.sprintReview.selected.size === 0) {
-      alert('체크박스로 한 개 이상의 리포트를 선택해주세요.');
-      return;
-    }
-    openSprintGroupModal();
-  });
-}
+// 기존 별도 「확인」 버튼은 사용처가 없어 클릭 핸들러도 제거. DOM 은 hidden 으로 유지.
 
 if (els.allReportsContent) {
   els.allReportsContent.addEventListener('change', (e) => {
