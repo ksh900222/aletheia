@@ -85,6 +85,45 @@ sudo apt-get install -y nodejs
 
 **Windows**: [nodejs.org](https://nodejs.org/) 에서 LTS 설치 프로그램 다운로드 → 실행. "Tools for Native Modules" 체크박스는 보통 안 켜도 됨 (better-sqlite3 prebuilt 가 있음). `npm install` 시 빌드 에러가 나면 그때 켜고 재설치.
 
+> 사내/기관 네트워크 환경(회사 보안 인증서가 끼는 환경) 이라면 아래 「Windows 사내망 설치」 절차를 따르세요.
+
+### Windows 사내망 설치 (시스템 인증서 환경)
+
+사내망에서는 외부 HTTPS 가 회사 보안 인증서 체인을 거치는 경우가 많아, Node 의 번들 CA 만으로 `npm install` 시 인증서 오류가 날 수 있습니다. 또한 **Node 24 는 사내망 호환성 이슈가 보고**되어 **Node 22 LTS (22.22.2 권장)** 사용을 권장합니다.
+
+**1) Node.js 22.22.2 설치** — MSI 직접 다운로드:
+[https://nodejs.org/dist/v22.22.2/node-v22.22.2-x64.msi](https://nodejs.org/dist/v22.22.2/node-v22.22.2-x64.msi)
+
+또는 PowerShell 자동 설치:
+```powershell
+$msi = "$env:USERPROFILE\Downloads\node-v22.22.2-x64.msi"
+Invoke-WebRequest -Uri "https://nodejs.org/dist/v22.22.2/node-v22.22.2-x64.msi" -OutFile $msi
+Start-Process msiexec.exe -ArgumentList '/i', $msi, '/qn', '/norestart' -Wait
+```
+
+**2) Node 가 Windows 시스템 인증서 저장소를 쓰도록 설정** — 사용자 환경변수 1회 등록 (이후 모든 새 셸에 적용):
+```powershell
+[Environment]::SetEnvironmentVariable('NODE_OPTIONS','--use-system-ca','User')
+
+# 현재 열려있는 셸에도 즉시 적용
+$env:NODE_OPTIONS='--use-system-ca'
+```
+
+**3) 의존성 설치 + 실행**
+```powershell
+cd E:\KSH_DxCode\aletheia    # 프로젝트 경로 (예시)
+npm install
+npm start
+```
+브라우저에서 [http://localhost:3000](http://localhost:3000)
+
+**점검 명령**
+```powershell
+node -v                     # v22.22.2 기대
+npm -v                      # 10.9.7 이상 기대
+npm view express version    # npm 레지스트리 접속 확인
+```
+
 ## 옮길 때 가져가지 말 것
 
 - `node_modules/` — OS/CPU 별 native 바이너리. 새 PC 에서 `npm install` 로 재생성.
