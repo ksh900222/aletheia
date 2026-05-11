@@ -132,6 +132,43 @@ router.post('/', (req, res) => {
   }
 });
 
+// POST /api/sprint-groups/:id/remove-members
+// body: { members: [{report_id, owner?}] }
+// 본인 그룹에서 일부 멤버만 제거. 그룹 자체는 유지. updated_at 을 bump 해
+// 다음 sync 에 peer 들에게 변경 전파.
+router.post('/:id/remove-members', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { members } = req.body || {};
+  if (!Array.isArray(members) || members.length === 0) {
+    return res.status(400).json({ error: 'members_required' });
+  }
+  const exists = db.prepare(
+    `SELECT 1 FROM sprint_groups WHERE creator = '' AND id = ?`
+  ).get(id);
+  if (!exists) return res.status(404).json({ error: 'not_found' });
+
+  const delStmt = db.prepare(
+    `DELETE FROM sprint_group_members
+      WHERE group_creator = '' AND group_id = ? AND report_owner = ? AND report_id = ?`
+  );
+  const bumpStmt = db.prepare(
+    `UPDATE sprint_groups SET updated_at = datetime('now') WHERE creator = '' AND id = ?`
+  );
+  const tx = db.transaction(() => {
+    let removed = 0;
+    for (const m of members) {
+      const rid = Number(m && m.report_id);
+      if (!Number.isInteger(rid)) continue;
+      const owner = typeof m.owner === 'string' ? m.owner : '';
+      removed += delStmt.run(id, owner, rid).changes;
+    }
+    if (removed > 0) bumpStmt.run(id);
+    return removed;
+  });
+  res.json({ removed: tx() });
+});
+
 // DELETE /api/sprint-groups/:id — only own groups. Peer-created groups can
 // be removed solely by the creator on their machine; the next sync round
 // then propagates the removal to everyone else.

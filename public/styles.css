@@ -767,6 +767,13 @@ body.scope-all-reports .in-all-reports-only.hidden { display: none !important; }
 .in-sprint-review-only { display: none !important; }
 body.scope-sprint-review .in-sprint-review-only { display: block !important; }
 body.scope-sprint-review .in-sprint-review-only.hidden { display: none !important; }
+/* 「선택」 토글 — 전체 리포트 + 스프린트 리뷰 양쪽에서 사용. JS 가
+   상황별로 .hidden 을 토글한다. */
+.in-reports-views { display: none !important; }
+body.scope-all-reports .in-reports-views,
+body.scope-sprint-review .in-reports-views { display: inline-flex !important; }
+body.scope-all-reports .in-reports-views.hidden,
+body.scope-sprint-review .in-reports-views.hidden { display: none !important; }
 
 .sprint-review-check { transform: scale(1.15); cursor: pointer; }
 
