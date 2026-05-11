@@ -4847,6 +4847,9 @@ const taskEls = {
   outboundList:    document.getElementById('task-outbound-list'),
   outboundCount:   document.getElementById('task-outbound-count'),
   outboundRefresh: document.getElementById('task-outbound-refresh'),
+  outboundSelectAll:    document.getElementById('task-outbound-select-all'),
+  outboundDelSelected:  document.getElementById('task-outbound-delete-selected'),
+  outboundDelAll:       document.getElementById('task-outbound-delete-all'),
   recipientsBox:   document.getElementById('task-request-recipients'),
   recipientCount:  document.getElementById('task-request-recipient-count'),
   selectAll:       document.getElementById('task-request-select-all'),
@@ -5183,6 +5186,8 @@ async function loadAndRenderOutbound() {
     if (res.ok) rows = await res.json();
   } catch (e) {
     taskEls.outboundList.innerHTML = `<div class="empty">불러오기 실패: ${escapeHtml(e.message)}</div>`;
+    lastOutboundGroups = [];
+    resetTaskOutboundSelection();
     return;
   }
   // Group by group_id (fallback: row id) — one request to N recipients
@@ -5219,6 +5224,7 @@ async function loadAndRenderOutbound() {
   lastOutboundGroups = ordered;
   if (ordered.length === 0) {
     taskEls.outboundList.innerHTML = '<div class="empty">아직 보낸 업무 요청이 없습니다</div>';
+    resetTaskOutboundSelection();
     return;
   }
   taskEls.outboundList.innerHTML = '';
@@ -5266,6 +5272,9 @@ async function loadAndRenderOutbound() {
       : '';
     item.innerHTML = `
       <div class="task-outbound-item-head">
+        <label class="task-row-select" title="선택 (전체 그룹의 모든 row 삭제)">
+          <input type="checkbox" class="task-outbound-row-check" data-row-ids="${g.rowIds.join(',')}" />
+        </label>
         <span class="task-outbound-item-time">${escapeHtml(formatCommentTimestamp(g.created_at))} 작성</span>
         <div class="task-outbound-item-head-right">
           ${dlHtml}
@@ -5279,6 +5288,15 @@ async function loadAndRenderOutbound() {
     `;
     taskEls.outboundList.appendChild(item);
   }
+  resetTaskOutboundSelection();
+}
+
+function resetTaskOutboundSelection() {
+  if (taskEls.outboundSelectAll) {
+    taskEls.outboundSelectAll.checked = false;
+    taskEls.outboundSelectAll.indeterminate = false;
+  }
+  refreshTaskOutboundDeleteButtons();
 }
 
 // Event delegation — 「다시 요청」 / 「응답 보기」 buttons on cards.
@@ -5298,6 +5316,45 @@ if (taskEls.outboundList) {
       openTaskOutboundDetail(g);
       return;
     }
+  });
+  // Per-card checkbox change → sync 「전체 선택」 indeterminate / checked
+  // and refresh button enabled state.
+  taskEls.outboundList.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('task-outbound-row-check')) return;
+    const all = document.querySelectorAll('#task-outbound-list .task-outbound-row-check');
+    const checked = document.querySelectorAll('#task-outbound-list .task-outbound-row-check:checked');
+    if (taskEls.outboundSelectAll) {
+      taskEls.outboundSelectAll.checked = all.length > 0 && checked.length === all.length;
+      taskEls.outboundSelectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+    refreshTaskOutboundDeleteButtons();
+  });
+}
+if (taskEls.outboundSelectAll) {
+  taskEls.outboundSelectAll.addEventListener('change', () => {
+    document.querySelectorAll('#task-outbound-list .task-outbound-row-check').forEach((cb) => {
+      cb.checked = taskEls.outboundSelectAll.checked;
+    });
+    taskEls.outboundSelectAll.indeterminate = false;
+    refreshTaskOutboundDeleteButtons();
+  });
+}
+if (taskEls.outboundDelSelected) {
+  taskEls.outboundDelSelected.addEventListener('click', async () => {
+    const ids = getSelectedOutboundIds();
+    if (ids.length === 0) return;
+    if (!confirm(`선택한 그룹의 row ${ids.length}개를 삭제합니다.\n(내 PC 데이터만 삭제 — 수신자 PC 의 inbound row 는 그대로 남음)\n\n계속할까요?`)) return;
+    const ok = await deleteTaskRowIds(ids);
+    if (ok) await loadAndRenderOutbound();
+  });
+}
+if (taskEls.outboundDelAll) {
+  taskEls.outboundDelAll.addEventListener('click', async () => {
+    const ids = (lastOutboundGroups || []).flatMap((g) => g.rowIds || []);
+    if (ids.length === 0) return;
+    if (!confirm(`전체 ${ids.length}개 row 를 모두 삭제합니다.\n(내 PC 데이터만 삭제 — 수신자 PC 의 inbound row 는 그대로 남음)\n\n계속할까요?`)) return;
+    const ok = await deleteTaskRowIds(ids);
+    if (ok) await loadAndRenderOutbound();
   });
 }
 
@@ -5608,6 +5665,9 @@ const taskInboundEls = {
   rows:         document.getElementById('task-inbound-rows'),
   count:        document.getElementById('task-inbound-count'),
   refreshBtn:   document.getElementById('task-inbound-refresh'),
+  selectAll:    document.getElementById('task-inbound-select-all'),
+  delSelected:  document.getElementById('task-inbound-delete-selected'),
+  delAll:       document.getElementById('task-inbound-delete-all'),
 };
 const taskDetailEls = {
   modal:         document.getElementById('task-detail-modal'),
@@ -5670,21 +5730,25 @@ async function openTaskInboundModal() {
 
 async function loadAndRenderInbound() {
   if (!taskInboundEls.rows) return;
-  taskInboundEls.rows.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">불러오는 중...</td></tr>';
+  taskInboundEls.rows.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center; padding:14px;">불러오는 중...</td></tr>';
   let rows = [];
   try {
     const res = await fetch('/api/tasks/inbound');
     if (res.ok) rows = await res.json();
   } catch (e) {
-    taskInboundEls.rows.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">불러오기 실패: ${escapeHtml(e.message)}</td></tr>`;
+    taskInboundEls.rows.innerHTML = `<tr><td colspan="5" class="muted" style="text-align:center; padding:14px;">불러오기 실패: ${escapeHtml(e.message)}</td></tr>`;
     return;
   }
   if (taskInboundEls.count) {
     taskInboundEls.count.textContent = rows.length > 0 ? `(${rows.length}건)` : '';
   }
+  // Cache the visible row ids so 「전체 삭제」 can target them without
+  // re-querying the DOM.
+  lastInboundRowIds = rows.map((r) => Number(r.id)).filter((n) => Number.isInteger(n));
   taskInboundEls.rows.innerHTML = '';
   if (rows.length === 0) {
-    taskInboundEls.rows.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; padding:14px;">받은 요청이 없습니다</td></tr>';
+    taskInboundEls.rows.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center; padding:14px;">받은 요청이 없습니다</td></tr>';
+    refreshTaskInboundDeleteButtons();
     return;
   }
   for (const r of rows) {
@@ -5693,13 +5757,75 @@ async function loadAndRenderInbound() {
     const preview = (r.body || '').replace(/\s+/g, ' ').trim();
     const status = r.status || 'pending';
     tr.innerHTML = `
+      <td class="task-row-select-cell"><input type="checkbox" class="task-inbound-row-check" data-id="${r.id}" /></td>
       <td>${escapeHtml(r.sender)}</td>
       <td><div class="task-inbound-body-preview">${escapeHtml(preview)}</div></td>
       <td>${escapeHtml(r.deadline || '')}</td>
       <td><span class="task-status-badge" data-status="${status}">${TASK_STATUS_LABEL[status] || status}</span></td>
     `;
-    tr.addEventListener('click', () => openTaskDetail(r.id));
+    // Open detail only if click did not originate from the checkbox cell.
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('.task-row-select-cell')) return;
+      openTaskDetail(r.id);
+    });
     taskInboundEls.rows.appendChild(tr);
+  }
+  refreshTaskInboundDeleteButtons();
+}
+
+let lastInboundRowIds = [];
+
+function getSelectedOutboundIds() {
+  const ids = new Set();
+  document.querySelectorAll('#task-outbound-list .task-outbound-row-check:checked').forEach((cb) => {
+    String(cb.dataset.rowIds || '').split(',').forEach((s) => {
+      const n = Number(s);
+      if (Number.isInteger(n) && n > 0) ids.add(n);
+    });
+  });
+  return Array.from(ids);
+}
+function getSelectedInboundIds() {
+  const ids = [];
+  document.querySelectorAll('#task-inbound-rows .task-inbound-row-check:checked').forEach((cb) => {
+    const n = Number(cb.dataset.id);
+    if (Number.isInteger(n) && n > 0) ids.push(n);
+  });
+  return ids;
+}
+function refreshTaskOutboundDeleteButtons() {
+  if (!taskEls.outboundDelSelected) return;
+  taskEls.outboundDelSelected.disabled = getSelectedOutboundIds().length === 0;
+  if (taskEls.outboundDelAll) {
+    taskEls.outboundDelAll.disabled = (lastOutboundGroups || []).length === 0;
+  }
+}
+function refreshTaskInboundDeleteButtons() {
+  if (!taskInboundEls.delSelected) return;
+  taskInboundEls.delSelected.disabled = getSelectedInboundIds().length === 0;
+  if (taskInboundEls.delAll) {
+    taskInboundEls.delAll.disabled = lastInboundRowIds.length === 0;
+  }
+}
+async function deleteTaskRowIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return false;
+  try {
+    const res = await fetch('/api/tasks/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(`삭제 실패: ${err.error || res.status}`, 'error');
+      return false;
+    }
+    const data = await res.json().catch(() => ({}));
+    showToast(`${data.deleted || ids.length}건 삭제됨`);
+    return true;
+  } catch (e) {
+    showToast(`삭제 오류: ${e.message}`, 'error');
+    return false;
   }
 }
 
@@ -5903,6 +6029,51 @@ if (taskInboundEls.modal) {
 }
 if (taskInboundEls.refreshBtn) {
   taskInboundEls.refreshBtn.addEventListener('click', loadAndRenderInbound);
+}
+if (taskInboundEls.rows) {
+  taskInboundEls.rows.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('task-inbound-row-check')) return;
+    const all = document.querySelectorAll('#task-inbound-rows .task-inbound-row-check');
+    const checked = document.querySelectorAll('#task-inbound-rows .task-inbound-row-check:checked');
+    if (taskInboundEls.selectAll) {
+      taskInboundEls.selectAll.checked = all.length > 0 && checked.length === all.length;
+      taskInboundEls.selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+    refreshTaskInboundDeleteButtons();
+  });
+}
+if (taskInboundEls.selectAll) {
+  taskInboundEls.selectAll.addEventListener('change', () => {
+    document.querySelectorAll('#task-inbound-rows .task-inbound-row-check').forEach((cb) => {
+      cb.checked = taskInboundEls.selectAll.checked;
+    });
+    taskInboundEls.selectAll.indeterminate = false;
+    refreshTaskInboundDeleteButtons();
+  });
+}
+if (taskInboundEls.delSelected) {
+  taskInboundEls.delSelected.addEventListener('click', async () => {
+    const ids = getSelectedInboundIds();
+    if (ids.length === 0) return;
+    if (!confirm(`선택한 ${ids.length}건을 삭제합니다.\n(내 PC 데이터만 삭제 — 발신자 PC 의 outbound row 는 그대로 남음)\n\n계속할까요?`)) return;
+    const ok = await deleteTaskRowIds(ids);
+    if (ok) {
+      await loadAndRenderInbound();
+      refreshInboundPendingBadge();
+    }
+  });
+}
+if (taskInboundEls.delAll) {
+  taskInboundEls.delAll.addEventListener('click', async () => {
+    const ids = lastInboundRowIds.slice();
+    if (ids.length === 0) return;
+    if (!confirm(`전체 ${ids.length}건을 모두 삭제합니다.\n(내 PC 데이터만 삭제 — 발신자 PC 의 outbound row 는 그대로 남음)\n\n계속할까요?`)) return;
+    const ok = await deleteTaskRowIds(ids);
+    if (ok) {
+      await loadAndRenderInbound();
+      refreshInboundPendingBadge();
+    }
+  });
 }
 if (taskDetailEls.modal) {
   taskDetailEls.modal.addEventListener('click', (e) => {
