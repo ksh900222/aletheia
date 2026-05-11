@@ -421,6 +421,13 @@
       <h3>팀원 관리</h3>
       <p class="muted" style="font-size:12px; margin:0 0 12px;">peer 정보는 별도 DB에 저장됩니다. 변경 사항은 모든 팀원에게 자동 전파됩니다.</p>
 
+      <h4>팀 token <span class="muted" style="font-size:11px;">— 같은 팀원끼리 동일한 값을 공유해야 통신 가능</span></h4>
+      <div class="team-manage-add-row">
+        <input id="team-manage-token-input" type="text" placeholder="공유 token" maxlength="200" style="flex:1;" />
+        <button type="button" id="team-manage-token-save" class="btn btn-primary">저장</button>
+      </div>
+      <p class="muted" style="font-size:11px; margin:0 0 12px;">이 값이 팀원 사이에 다르면 cross-peer 통신이 401(invalid_team_token) 으로 거부됩니다.</p>
+
       <h4>새 팀원 추가</h4>
       <form id="team-manage-add-form" class="team-manage-add-row">
         <input name="name" placeholder="이름" maxlength="100" required />

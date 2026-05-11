@@ -4540,10 +4540,22 @@ const teamManageEls = {
   csvFile:     document.getElementById('team-manage-csv-file'),
   csvApply:    document.getElementById('team-manage-csv-apply'),
   announceBtn: document.getElementById('team-manage-announce-btn'),
+  tokenInput:  document.getElementById('team-manage-token-input'),
+  tokenSave:   document.getElementById('team-manage-token-save'),
 };
 
+async function refreshTeamManageToken() {
+  if (!teamManageEls.tokenInput) return;
+  try {
+    const res = await fetch('/api/team/token');
+    if (!res.ok) return;
+    const data = await res.json();
+    teamManageEls.tokenInput.value = data.token || '';
+  } catch { /* network blip */ }
+}
+
 async function openTeamManageModal() {
-  await refreshTeamManageList();
+  await Promise.all([refreshTeamManageList(), refreshTeamManageToken()]);
   teamManageEls.modal.classList.remove('hidden');
 }
 function closeTeamManageModal() {
@@ -4584,6 +4596,31 @@ async function refreshTeamManageList() {
     `;
     teamManageEls.rows.appendChild(tr);
   }
+}
+
+if (teamManageEls.tokenSave) {
+  teamManageEls.tokenSave.addEventListener('click', async () => {
+    const token = String(teamManageEls.tokenInput.value || '');
+    if (!token.trim()) {
+      showToast('token 이 비어있습니다.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch('/api/team/set-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`token 저장 실패: ${err.detail || err.error || res.status}`, 'error');
+        return;
+      }
+      showToast('팀 token 저장됨 — 다음 cross-peer 요청부터 적용');
+    } catch (e) {
+      showToast(`오류: ${e.message}`, 'error');
+    }
+  });
 }
 
 if (teamManageEls.addForm) {
