@@ -1739,14 +1739,10 @@ body.readonly .modal select {
   background: var(--panel-2);
   border-radius: var(--radius-sm);
 }
-.task-select-all-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
+.task-select-all-checkbox {
+  margin: 0;
   cursor: pointer;
 }
-.task-select-all-label input { margin: 0; }
 .task-list-toolbar .btn { padding: 4px 10px; font-size: 12px; }
 .task-row-select {
   display: inline-flex;
