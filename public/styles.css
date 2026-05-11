@@ -1230,6 +1230,24 @@ body.readonly .modal select {
   border-radius: var(--radius-sm);
   font-size: 13px;
 }
+.team-manage-token-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.team-manage-token-row input {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.team-manage-token-row button {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+}
 .team-manage-table-wrap {
   max-height: 240px;
   overflow-y: auto;
