@@ -4849,7 +4849,6 @@ const taskEls = {
   outboundRefresh: document.getElementById('task-outbound-refresh'),
   outboundSelectAll:    document.getElementById('task-outbound-select-all'),
   outboundDelSelected:  document.getElementById('task-outbound-delete-selected'),
-  outboundDelAll:       document.getElementById('task-outbound-delete-all'),
   recipientsBox:   document.getElementById('task-request-recipients'),
   recipientCount:  document.getElementById('task-request-recipient-count'),
   selectAll:       document.getElementById('task-request-select-all'),
@@ -5348,15 +5347,6 @@ if (taskEls.outboundDelSelected) {
     if (ok) await loadAndRenderOutbound();
   });
 }
-if (taskEls.outboundDelAll) {
-  taskEls.outboundDelAll.addEventListener('click', async () => {
-    const ids = (lastOutboundGroups || []).flatMap((g) => g.rowIds || []);
-    if (ids.length === 0) return;
-    if (!confirm(`전체 ${ids.length}개 row 를 모두 삭제합니다.\n(내 PC 데이터만 삭제 — 수신자 PC 의 inbound row 는 그대로 남음)\n\n계속할까요?`)) return;
-    const ok = await deleteTaskRowIds(ids);
-    if (ok) await loadAndRenderOutbound();
-  });
-}
 
 // Outbound detail modal — view-only display of a sent request grouped by
 // recipient: each recipient shows status + their comments (수락 with comment,
@@ -5667,7 +5657,6 @@ const taskInboundEls = {
   refreshBtn:   document.getElementById('task-inbound-refresh'),
   selectAll:    document.getElementById('task-inbound-select-all'),
   delSelected:  document.getElementById('task-inbound-delete-selected'),
-  delAll:       document.getElementById('task-inbound-delete-all'),
 };
 const taskDetailEls = {
   modal:         document.getElementById('task-detail-modal'),
@@ -5796,16 +5785,10 @@ function getSelectedInboundIds() {
 function refreshTaskOutboundDeleteButtons() {
   if (!taskEls.outboundDelSelected) return;
   taskEls.outboundDelSelected.disabled = getSelectedOutboundIds().length === 0;
-  if (taskEls.outboundDelAll) {
-    taskEls.outboundDelAll.disabled = (lastOutboundGroups || []).length === 0;
-  }
 }
 function refreshTaskInboundDeleteButtons() {
   if (!taskInboundEls.delSelected) return;
   taskInboundEls.delSelected.disabled = getSelectedInboundIds().length === 0;
-  if (taskInboundEls.delAll) {
-    taskInboundEls.delAll.disabled = lastInboundRowIds.length === 0;
-  }
 }
 async function deleteTaskRowIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return false;
@@ -6056,18 +6039,6 @@ if (taskInboundEls.delSelected) {
     const ids = getSelectedInboundIds();
     if (ids.length === 0) return;
     if (!confirm(`선택한 ${ids.length}건을 삭제합니다.\n(내 PC 데이터만 삭제 — 발신자 PC 의 outbound row 는 그대로 남음)\n\n계속할까요?`)) return;
-    const ok = await deleteTaskRowIds(ids);
-    if (ok) {
-      await loadAndRenderInbound();
-      refreshInboundPendingBadge();
-    }
-  });
-}
-if (taskInboundEls.delAll) {
-  taskInboundEls.delAll.addEventListener('click', async () => {
-    const ids = lastInboundRowIds.slice();
-    if (ids.length === 0) return;
-    if (!confirm(`전체 ${ids.length}건을 모두 삭제합니다.\n(내 PC 데이터만 삭제 — 발신자 PC 의 outbound row 는 그대로 남음)\n\n계속할까요?`)) return;
     const ok = await deleteTaskRowIds(ids);
     if (ok) {
       await loadAndRenderInbound();
