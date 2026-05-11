@@ -393,7 +393,15 @@ function effectiveSchedules() {
   }
   const q = state.scheduleQuery.trim().toLowerCase();
   if (q) {
-    base = base.filter((s) => (s.title || '').toLowerCase().includes(q));
+    // 제목 / 카테고리명 / 담당자(팀원) 이름 중 하나라도 매치하면 노출.
+    // 본인 스케줄은 owner 가 비어 있으므로 자동으로 owner 매치는 제외됨.
+    base = base.filter((s) => {
+      if ((s.title || '').toLowerCase().includes(q)) return true;
+      const cat = findCategoryForSchedule(s);
+      if (cat && (cat.name || '').toLowerCase().includes(q)) return true;
+      if ((s.owner || '').toLowerCase().includes(q)) return true;
+      return false;
+    });
   }
   return { schedules: base, baseIdSet };
 }
