@@ -28,15 +28,24 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '1mb' }));
 
-// IP-based write authorization. Only requests originating from these IPs are
-// allowed to mutate state (POST/PUT/PATCH/DELETE). Reads (GET/HEAD/OPTIONS)
-// are open to everyone on the network. The operator's own machine (all local
-// network interfaces) is auto-included via peerWatcher.getLocalIPs() so the
-// person who launched the server is never read-only on their own PC, even
-// when accessing it from their LAN IP rather than localhost.
+// IP-based authorization. Two complementary allowlists:
+//
+//   WRITE_ALLOWLIST — full read+write. POST/PUT/PATCH/DELETE 가능.
+//     자기 PC 의 모든 LAN IP 는 peerWatcher.getLocalIPs() 로 자동 포함되므로
+//     보통 비워둠. 다른 PC 가 본인 인스턴스를 편집할 수 있게 하려면 그 IP 를
+//     여기에 적고 재시작.
+//
+//   READ_ALLOWLIST — 다운로드 (/uploads) + read 만 허용. 쓰기 차단.
+//     "수정은 못 하지만 자료는 받아볼 수 있어야 하는 IP" — 예: 외부 협력자,
+//     관리자 클라이언트. 등록 peer 가 아니어도 첨부파일 접근 가능.
+//
+// API GET 요청은 별도 IP 가드 없이 누구나 접근 가능 (LAN 전제). /uploads
+// 만 canRead 로 가드되며, 모든 mutating 요청은 canWrite 로 가드됨.
 const WRITE_ALLOWLIST = new Set([
-  // 추가 IP 가 필요하면 여기에 적고 재시작. (자기 PC 의 IP 는 자동 등록되므로
-  // 보통은 비워두면 됨.)
+  // 추가 IP 가 필요하면 여기에 적고 재시작.
+]);
+const READ_ALLOWLIST = new Set([
+  // 읽기 전용 다운로드 IP 가 필요하면 여기에 적고 재시작.
 ]);
 
 function clientIp(req) {
@@ -53,11 +62,12 @@ function canWrite(req) {
   return peerWatcher.getLocalIPs().has(ip);
 }
 
-// 첨부 다운로드 권한: 본인 PC(WRITE_ALLOWLIST) 또는 등록된 team peer 만 허용.
-// LAN 의 비-사용자(curl, 일반 LAN PC)는 차단.
+// 첨부 다운로드 권한: WRITE_ALLOWLIST(=쓰기) OR READ_ALLOWLIST(=다운로드 전용)
+// OR 등록된 team peer 만 허용. LAN 의 비-허가 PC 는 차단.
 function canRead(req) {
   if (canWrite(req)) return true;
   const ip = clientIp(req);
+  if (READ_ALLOWLIST.has(ip)) return true;
   return peerWatcher.getPeers().some((p) => p.host === ip);
 }
 
@@ -203,5 +213,8 @@ app.listen(PORT, HOST, () => {
   console.log(`[server] write 자동 허용 (자기 PC IP): ${autoIps.join(', ')}`);
   if (WRITE_ALLOWLIST.size > 0) {
     console.log(`[server] write 추가 허용 (수동): ${Array.from(WRITE_ALLOWLIST).join(', ')}`);
+  }
+  if (READ_ALLOWLIST.size > 0) {
+    console.log(`[server] read-only 허용 (다운로드만): ${Array.from(READ_ALLOWLIST).join(', ')}`);
   }
 });
