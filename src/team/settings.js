@@ -11,6 +11,12 @@ const DEFAULTS = {
   syncIntervalSec: 60,
   requestTimeoutMs: 5000,
   peerBroadcast: { enabled: true, debounceMs: 500 },
+  // 프로젝트 동결 플래그. true 면 모든 mutating 요청을 거절한다 — 완료된
+  // 프로젝트 폴더를 "조회 전용 archive" 로 보존하는 용도.
+  // UI 의 「프로젝트 동결」 버튼 / POST /api/admin/freeze 가 토글한다.
+  // 해제는 의도적으로 UI 에서 안 보임 — 직접 이 파일 열어서 false 로 바꿔야 함.
+  frozen: false,
+  frozenAt: null,
 };
 
 let cached = null;
@@ -93,4 +99,23 @@ function setSharedToken(token) {
   return cached.sharedToken;
 }
 
-module.exports = { load, get, save, setSelfName, setSharedToken, SETTINGS_PATH };
+// Mark the project as frozen (read-only archive). One-way toggle from the UI;
+// 해제는 의도적으로 manual file edit 만.
+function freeze() {
+  if (!cached) load();
+  cached.frozen = true;
+  cached.frozenAt = new Date().toISOString();
+  save();
+  return { frozen: true, frozenAt: cached.frozenAt };
+}
+
+function isFrozen() {
+  if (!cached) load();
+  return !!cached.frozen;
+}
+
+module.exports = {
+  load, get, save, setSelfName, setSharedToken,
+  freeze, isFrozen,
+  SETTINGS_PATH,
+};

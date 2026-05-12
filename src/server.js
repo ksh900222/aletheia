@@ -10,6 +10,7 @@ const reportsRouter = require('./routes/reports');
 const attachmentsRouter = require('./routes/attachments');
 const tasksRouter = require('./routes/tasks');
 const sprintGroupsRouter = require('./routes/sprint_groups');
+const archiveRouter = require('./routes/archive');
 const scheduler = require('./engine/scheduler');
 const holidays = require('./holidays');
 const teamSettings = require('./team/settings');
@@ -80,6 +81,34 @@ app.use((req, res, next) => {
   res.status(403).json({ error: 'forbidden_write_from_ip', ip: clientIp(req) });
 });
 
+// Project-freeze guard — when team_settings.frozen=true, refuse all mutating
+// requests with 423 Locked. Read paths stay fully open so the frozen folder
+// can be browsed as a read-only project archive. Exception: the freeze
+// endpoint itself remains reachable (one-way toggle, so a frozen project
+// would still allow setting frozen=true a second time — harmless).
+app.use((req, res, next) => {
+  const m = req.method;
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
+  if (req.path === '/api/admin/freeze') return next();
+  if (teamSettings.isFrozen()) {
+    return res.status(423).json({
+      error: 'project_frozen',
+      frozenAt: teamSettings.get().frozenAt,
+    });
+  }
+  next();
+});
+
+// Admin freeze endpoint — one-way toggle. Once frozen, the UI button is
+// hidden; reset requires manual edit of team_settings.json.
+app.post('/api/admin/freeze', express.json(), (req, res) => {
+  const result = teamSettings.freeze();
+  res.json(result);
+});
+app.get('/api/admin/freeze-status', (req, res) => {
+  res.json({ frozen: teamSettings.isFrozen(), frozenAt: teamSettings.get().frozenAt });
+});
+
 app.use('/api/categories', categoriesRouter);
 app.use('/api/schedules', schedulesRouter);
 app.use('/api/dependencies', dependenciesRouter);
@@ -87,6 +116,7 @@ app.use('/api/reports', reportsRouter);
 app.use('/api', attachmentsRouter); // exposes /api/reports/:id/attachments/* and /api/attachments/:id
 app.use('/api/tasks', tasksRouter);
 app.use('/api/sprint-groups', sprintGroupsRouter);
+app.use('/api/archive', archiveRouter);
 
 app.post('/api/recompute', (req, res) => {
   res.json(scheduler.recomputeAll());

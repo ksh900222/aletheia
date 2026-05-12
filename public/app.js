@@ -4405,8 +4405,15 @@ state.team = {
 
 state.allReportsOwner = ''; // '' = all, '__self' = own only, '<peerName>' = that peer
 
-// Helper: is the team mode ON and rendering integrated views?
-function teamOn() { return state.team.mode === 'ON'; }
+// Helper: should merged data (live team peers OR imported archived peers) be
+// shown in integrated views? Returns true if the live team mode is ON, OR if
+// at least one imported peer exists — imported peers are visible regardless
+// of team mode so the archive survives even when team mode is off.
+function teamOn() {
+  if (state.team.mode === 'ON') return true;
+  if (state.archivedPeers && state.archivedPeers.length > 0) return true;
+  return false;
+}
 
 // Helper: produce the owner suffix span for a team-owned item. Returns
 // empty string for own items so renderers can blindly append the result.
@@ -4527,18 +4534,28 @@ function applyTeamState(data) {
   }
 
   // Refresh merged data whenever the server's lastSyncAt advances. Also fetch
-  // once on the first ON state observation. When OFF, clear merged so views
-  // stop showing team items immediately.
+  // once on the first ON state observation. When OFF, we still load merged
+  // if at least one archived peer exists — the server returns its imported
+  // data and we want it visible regardless of team mode.
   if (data.mode === 'ON') {
     if (data.lastSyncAt && data.lastSyncAt !== state.team.mergedLoadedFor) {
       loadTeamMerged();
     }
-  } else if (state.team.mergedLoadedFor !== null) {
-    state.team.merged = { categories: [], schedules: [], dependencies: [], reports: [] };
-    state.team.mergedLoadedFor = null;
-    if (typeof renderCategories === 'function') renderCategories();
-    if (typeof renderCategoryView === 'function') renderCategoryView();
-    if (typeof renderAllReportsView === 'function' && state.scope === 'all-reports') renderAllReportsView();
+  } else {
+    // OFF + 보관된 팀원 있음 → 한 번 받아 와서 표시 유지
+    if (state.archivedPeers && state.archivedPeers.length > 0) {
+      loadTeamMerged();
+    } else if (state.team.mergedLoadedFor !== null) {
+      // OFF + 보관된 사람도 없음 → merged 비움
+      state.team.merged = { categories: [], schedules: [], dependencies: [], reports: [] };
+      state.team.mergedLoadedFor = null;
+      if (typeof renderCategories === 'function') renderCategories();
+      if (typeof renderCategoryView === 'function') renderCategoryView();
+      if (typeof renderAllReportsView === 'function' &&
+          (state.scope === 'all-reports' || state.scope === 'sprint-review')) {
+        renderAllReportsView();
+      }
+    }
   }
 }
 
@@ -5320,6 +5337,212 @@ if (teamManageEls.announceBtn) {
 }
 
 loadTeamState();
+
+// ───── Archive management (archived peer import + project freeze) ─────
+
+const archiveEls = {
+  modal:          document.getElementById('archive-modal'),
+  openBtn:        document.getElementById('archive-manage-btn'),
+  exportBtn:      document.getElementById('archive-export-btn'),
+  peerSelect:     document.getElementById('archive-peer-select'),
+  importPeerBtn:  document.getElementById('archive-import-peer-btn'),
+  fileInput:      document.getElementById('archive-file-input'),
+  importFileBtn:  document.getElementById('archive-import-file-btn'),
+  peersList:      document.getElementById('archived-peers-list'),
+  freezeBtn:      document.getElementById('freeze-btn'),
+  frozenBanner:   document.getElementById('frozen-banner'),
+};
+
+state.archivedPeers = [];  // [{owner, imported_at, counts}]
+state.frozen = false;
+
+async function loadArchivedPeers() {
+  try {
+    state.archivedPeers = await api('GET', '/api/archive/peers');
+  } catch { state.archivedPeers = []; }
+  renderArchivedPeersList();
+  populatePeerSelect();
+}
+
+function renderArchivedPeersList() {
+  if (!archiveEls.peersList) return;
+  archiveEls.peersList.innerHTML = '';
+  if (state.archivedPeers.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.style.fontSize = '12px';
+    empty.textContent = '아직 보관 중인 팀원 데이터가 없습니다.';
+    archiveEls.peersList.appendChild(empty);
+    return;
+  }
+  for (const p of state.archivedPeers) {
+    const row = document.createElement('div');
+    row.className = 'archived-peer-row';
+    const importedAt = (p.imported_at || '').replace(' ', ' ');
+    row.innerHTML = `
+      <span class="name">${escapeHtml(p.owner)}</span>
+      <span class="badge">카테고리 ${p.counts.categories}</span>
+      <span class="badge">스케줄 ${p.counts.schedules}</span>
+      <span class="badge">리포트 ${p.counts.reports}</span>
+      <span class="badge">${escapeHtml(importedAt)}</span>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-danger" data-action="delete-archived" data-owner="${escapeHtml(p.owner)}">삭제</button>
+    `;
+    archiveEls.peersList.appendChild(row);
+  }
+}
+
+function populatePeerSelect() {
+  if (!archiveEls.peerSelect) return;
+  const peers = (state.team.peers || []).filter((p) => p.status === 'ok');
+  archiveEls.peerSelect.innerHTML = '';
+  if (peers.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(연결된 팀원 없음 — 팀모드 ON + 온라인 필요)';
+    archiveEls.peerSelect.appendChild(opt);
+    archiveEls.peerSelect.disabled = true;
+    return;
+  }
+  archiveEls.peerSelect.disabled = false;
+  for (const p of peers) {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    archiveEls.peerSelect.appendChild(opt);
+  }
+}
+
+function openArchiveModal() {
+  if (!archiveEls.modal) return;
+  loadArchivedPeers();
+  archiveEls.modal.classList.remove('hidden');
+}
+
+function closeArchiveModal() {
+  if (archiveEls.modal) archiveEls.modal.classList.add('hidden');
+}
+
+if (archiveEls.openBtn) {
+  archiveEls.openBtn.addEventListener('click', openArchiveModal);
+}
+
+if (archiveEls.modal) {
+  archiveEls.modal.addEventListener('click', (e) => {
+    if (e.target === archiveEls.modal) closeArchiveModal();
+    if (e.target.matches('[data-close]')) closeArchiveModal();
+    const delBtn = e.target.closest('[data-action="delete-archived"]');
+    if (delBtn) {
+      const owner = delBtn.dataset.owner;
+      if (!confirm(`「${owner}」의 보관 데이터를 완전히 삭제할까요? 첨부 파일도 함께 삭제됩니다.`)) return;
+      api('DELETE', `/api/archive/peers/${encodeURIComponent(owner)}`)
+        .then(() => loadArchivedPeers())
+        .then(() => loadTeamMerged && loadTeamMerged())
+        .catch((err) => showToast('삭제 실패: ' + err.message, 'error'));
+    }
+  });
+}
+
+if (archiveEls.exportBtn) {
+  archiveEls.exportBtn.addEventListener('click', () => {
+    // 직접 navigation 으로 ZIP 다운로드 (api() 는 JSON 만 처리)
+    window.location.href = '/api/archive/export';
+  });
+}
+
+if (archiveEls.importPeerBtn) {
+  archiveEls.importPeerBtn.addEventListener('click', async () => {
+    const name = archiveEls.peerSelect && archiveEls.peerSelect.value;
+    if (!name) {
+      alert('가져올 팀원을 선택해주세요.');
+      return;
+    }
+    if (!confirm(`「${name}」의 전체 데이터를 가져와서 보관할까요?\n\n팀 목록에서 자동 제거되고 스프린트 그룹 복제본도 정리됩니다.`)) return;
+    archiveEls.importPeerBtn.disabled = true;
+    try {
+      const result = await api('POST', '/api/archive/import-from-peer', { name });
+      showToast(`${result.owner} 데이터 보관 완료 (스케줄 ${result.table_counts.schedules}개)`, 'success');
+      await loadArchivedPeers();
+      await loadTeamMerged();
+      await loadTeamState();
+    } catch (e) {
+      showToast('가져오기 실패: ' + e.message, 'error');
+    } finally {
+      archiveEls.importPeerBtn.disabled = false;
+    }
+  });
+}
+
+if (archiveEls.importFileBtn) {
+  archiveEls.importFileBtn.addEventListener('click', async () => {
+    const f = archiveEls.fileInput && archiveEls.fileInput.files && archiveEls.fileInput.files[0];
+    if (!f) {
+      alert('ZIP 파일을 선택해주세요.');
+      return;
+    }
+    archiveEls.importFileBtn.disabled = true;
+    try {
+      const form = new FormData();
+      form.append('archive', f);
+      const res = await fetch('/api/archive/import-from-file', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      showToast(`${data.owner} 데이터 보관 완료 (스케줄 ${data.table_counts.schedules}개)`, 'success');
+      archiveEls.fileInput.value = '';
+      await loadArchivedPeers();
+      await loadTeamMerged();
+      await loadTeamState();
+    } catch (e) {
+      showToast('파일 가져오기 실패: ' + e.message, 'error');
+    } finally {
+      archiveEls.importFileBtn.disabled = false;
+    }
+  });
+}
+
+// ───── Project freeze ─────
+
+async function loadFreezeStatus() {
+  try {
+    const r = await fetch('/api/admin/freeze-status');
+    const d = await r.json();
+    state.frozen = !!d.frozen;
+    state.frozenAt = d.frozenAt;
+  } catch { state.frozen = false; }
+  applyFrozenUI();
+}
+
+function applyFrozenUI() {
+  document.body.classList.toggle('project-frozen', state.frozen);
+  if (archiveEls.freezeBtn) archiveEls.freezeBtn.classList.toggle('hidden', state.frozen);
+  if (archiveEls.frozenBanner) {
+    archiveEls.frozenBanner.classList.toggle('hidden', !state.frozen);
+    if (state.frozen && state.frozenAt) {
+      const d = new Date(state.frozenAt);
+      archiveEls.frozenBanner.title = `프로젝트 동결: ${d.toLocaleString('ko-KR')}`;
+    }
+  }
+}
+
+if (archiveEls.freezeBtn) {
+  archiveEls.freezeBtn.addEventListener('click', async () => {
+    if (!confirm('프로젝트를 동결하면 모든 편집 (추가/수정/삭제) 이 차단됩니다.\n\n해제하려면 data/team_settings.json 의 frozen 을 false 로 직접 수정해야 합니다.\n\n진행할까요?')) return;
+    try {
+      const r = await fetch('/api/admin/freeze', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      state.frozen = true;
+      state.frozenAt = d.frozenAt;
+      applyFrozenUI();
+      showToast('프로젝트가 동결되었습니다.', 'success', 5000);
+    } catch (e) {
+      showToast('동결 실패: ' + e.message, 'error');
+    }
+  });
+}
+
+loadFreezeStatus();
+loadArchivedPeers();
 
 // ───── Task request (업무 요청) ─────
 

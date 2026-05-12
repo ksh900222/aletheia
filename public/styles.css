@@ -2288,3 +2288,96 @@ body.readonly .modal select {
   font-size: 11px;
   border: 1px dashed var(--border);
 }
+
+/* ----- Archive management modal & freeze banner ----- */
+.frozen-banner {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  margin-left: 4px;
+  background: var(--danger, #e35454);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.archive-card {
+  min-width: 520px;
+  max-width: 720px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.archive-section {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.archive-section:last-of-type { border-bottom: none; }
+.archive-section h4 {
+  font-size: 13px;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-weight: 600;
+}
+.archive-section p.muted {
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+.archive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.archive-row select,
+.archive-row input[type="file"] {
+  flex: 1;
+}
+.archived-peers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.archived-peer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel-2, var(--panel));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.archived-peer-row .name {
+  font-weight: 600;
+  color: var(--text);
+}
+.archived-peer-row .badge {
+  background: var(--panel-3, #2a2f3a);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.archived-peer-row .spacer { flex: 1; }
+.archived-peer-row .btn-danger { padding: 4px 10px; font-size: 11px; }
+
+/* "📦 archived" chip on team-readonly items that came from imported_* (vs live peers).
+   Frontend sets data-imported="1" on those elements. */
+[data-imported="1"]::after {
+  content: ' 📦';
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Frozen state — disable cursor + reduce opacity on all editing chrome */
+body.project-frozen .all-view-btn,
+body.project-frozen .sidebar .btn-primary,
+body.project-frozen #add-category-btn,
+body.project-frozen #add-schedule-btn,
+body.project-frozen #add-dependency-btn,
+body.project-frozen .actions .btn,
+body.project-frozen .schedule-toolbar .btn:not(.view-btn) {
+  /* visual cue; the server is the actual source of truth */
+}
+body.project-frozen #freeze-btn { display: none !important; }

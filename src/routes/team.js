@@ -5,6 +5,7 @@ const settings = require('../team/settings');
 const cache = require('../team/cache');
 const sync = require('../team/sync');
 const exporter = require('../team/exporter');
+const archiveExporter = require('../team/archiveExporter');
 const broadcaster = require('../team/peerBroadcaster');
 const events = require('../team/events');
 const csvPeers = require('../team/csvPeers');
@@ -128,6 +129,28 @@ router.get('/snapshot', tokenAuth, (req, res) => {
   });
 });
 
+// Full ZIP archive of OWN data (categories/schedules/dependencies/reports +
+// attachment file blobs). Used by the archived-peer-import feature: when a
+// teammate is leaving, the coordinator pulls this from the peer's server to
+// permanently snapshot their data. Sprint review tables are intentionally
+// excluded — those replicate by themselves.
+router.get('/full-archive', tokenAuth, (req, res) => {
+  const cfg = settings.get();
+  const owner = cfg.self.name || 'unknown';
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition',
+    `attachment; filename="archive_${encodeURIComponent(owner)}_${ts}.zip"`);
+  archiveExporter.streamArchive(res, {
+    owner,
+    sourceVersion: exporter.computeVersion(),
+    sourceHost: req.socket && req.socket.localAddress,
+  }).catch((err) => {
+    console.error('[archive] /full-archive stream failed:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'archive_failed' });
+  });
+});
+
 router.post('/peer-update', tokenAuth, express.json(), (req, res) => {
   const { origin, entries } = req.body || {};
   if (!Array.isArray(entries)) {
@@ -229,10 +252,72 @@ router.get('/state', (req, res) => {
 // schedules / attachments so the frontend can render them just like own
 // reports. Only peers in 'ok' state contribute data.
 router.get('/merged', (req, res) => {
-  if (cache.getMode() !== 'ON') {
-    return res.json({ mode: 'OFF', categories: [], schedules: [], dependencies: [], reports: [] });
-  }
   const merged = { categories: [], schedules: [], dependencies: [], reports: [] };
+
+  // Imported (archived) peers — always included regardless of team mode.
+  // Each row tagged with `owner` and `imported: true` so the frontend can
+  // visually distinguish from live peer data and disable editing.
+  const importedOwners = db.prepare(`SELECT owner FROM imported_peers`).all();
+  for (const { owner } of importedOwners) {
+    const catRows = db.prepare(`SELECT * FROM imported_categories WHERE owner = ?`).all(owner);
+    const schedRows = db.prepare(`SELECT * FROM imported_schedules WHERE owner = ?`).all(owner);
+    const depRows = db.prepare(`SELECT * FROM imported_dependencies WHERE owner = ?`).all(owner);
+    const reportRows = db.prepare(`SELECT * FROM imported_reports WHERE owner = ?`).all(owner);
+    const rcRows = db.prepare(`SELECT * FROM imported_report_categories WHERE owner = ?`).all(owner);
+    const rsRows = db.prepare(`SELECT * FROM imported_report_schedules WHERE owner = ?`).all(owner);
+    const attRows = db.prepare(`SELECT * FROM imported_attachments WHERE owner = ?`).all(owner);
+    const cmtRows = db.prepare(`SELECT * FROM imported_report_comments WHERE owner = ?`).all(owner);
+
+    const catById = new Map(catRows.map((c) => [c.id, c]));
+    const schedById = new Map(schedRows.map((s) => [s.id, s]));
+    const rcByReport = new Map();
+    for (const rc of rcRows) {
+      if (!rcByReport.has(rc.report_id)) rcByReport.set(rc.report_id, []);
+      rcByReport.get(rc.report_id).push(rc.category_id);
+    }
+    const rsByReport = new Map();
+    for (const rs of rsRows) {
+      if (!rsByReport.has(rs.report_id)) rsByReport.set(rs.report_id, []);
+      rsByReport.get(rs.report_id).push(rs.schedule_id);
+    }
+    const attsByReport = new Map();
+    for (const a of attRows) {
+      if (!attsByReport.has(a.report_id)) attsByReport.set(a.report_id, []);
+      attsByReport.get(a.report_id).push(a);
+    }
+    const cmtsByReport = new Map();
+    for (const c of cmtRows) {
+      if (!cmtsByReport.has(c.report_id)) cmtsByReport.set(c.report_id, []);
+      cmtsByReport.get(c.report_id).push(c);
+    }
+
+    for (const c of catRows) merged.categories.push({ ...c, owner, imported: true });
+    for (const s of schedRows) merged.schedules.push({ ...s, owner, imported: true });
+    for (const dep of depRows) merged.dependencies.push({ ...dep, owner, imported: true });
+
+    for (const r of reportRows) {
+      const catIds = rcByReport.get(r.id) || [];
+      const cats = catIds.map((id) => catById.get(id)).filter(Boolean)
+        .map((c) => ({ ...c, owner, imported: true }));
+      const sIds = rsByReport.get(r.id) || [];
+      const scheds = sIds.map((id) => schedById.get(id)).filter(Boolean)
+        .map((s) => ({ ...s, owner, imported: true }));
+      // Imported attachments served from /uploads/imported/<owner>/... on this
+      // server, so peerHost/peerPort are unset (frontend uses relative URL).
+      const atts = (attsByReport.get(r.id) || []).map((a) => ({
+        ...a, owner, imported: true,
+      }));
+      const cmts = (cmtsByReport.get(r.id) || []).map((c) => ({ ...c, owner, imported: true }));
+      merged.reports.push({
+        ...r, owner, imported: true,
+        categories: cats, schedules: scheds, attachments: atts, comments: cmts,
+      });
+    }
+  }
+
+  if (cache.getMode() !== 'ON') {
+    return res.json({ mode: 'OFF', lastSyncAt: cache.getLastSyncAt(), ...merged });
+  }
   for (const peer of cache.getAllPeerStates()) {
     if (peer.status !== 'ok' || !peer.data) continue;
     const owner = peer.name;
