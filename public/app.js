@@ -5069,10 +5069,24 @@ function closeTeamManageModal() {
 
 async function refreshTeamManageList() {
   let peers = [];
+  let selfName = '';
   try {
     const res = await fetch('/api/team/peers');
-    if (res.ok) peers = (await res.json()).peers || [];
+    if (res.ok) {
+      const data = await res.json();
+      peers = data.peers || [];
+      selfName = data.selfName || '';
+    }
   } catch { /* network blip */ }
+  // Self-row dedup: 같은 host+port 를 가리키는 isSelf 행이 2개 이상이면,
+  // self.name 과 일치하는 행만 노출하고 나머지는 숨김. 서버측 receiver 가드가
+  // 이미 신규 유입을 막지만, 과거에 누적된 stale 행이 남아 있을 때 UI 에서
+  // 본인이 두 명으로 보이는 혼란을 방지.
+  const selfRows = peers.filter((p) => p.isSelf);
+  if (selfRows.length > 1 && selfName) {
+    const canonical = selfRows.find((p) => p.name === selfName) || selfRows[0];
+    peers = peers.filter((p) => !p.isSelf || p === canonical);
+  }
   teamManageEls.count.textContent = `(${peers.length}명)`;
   teamManageEls.rows.innerHTML = '';
   if (peers.length === 0) {
