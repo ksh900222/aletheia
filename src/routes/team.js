@@ -157,13 +157,31 @@ router.post('/peer-update', tokenAuth, express.json(), (req, res) => {
     return res.status(400).json({ error: 'invalid_payload' });
   }
   const self = settings.get().self.name;
-  const valid = entries.filter((e) =>
-    e && typeof e.name === 'string' && e.name && e.name !== self &&
-    typeof e.host === 'string' && e.host &&
-    Number.isInteger(e.port) && e.port >= 1 && e.port <= 65535
-  );
+  // Self filtering: drop entries that name our self.name AND drop entries
+  // whose (host, port) matches our local self even if the name differs.
+  // The host+port check stops other peers from "renaming" us — e.g., if a
+  // peer's stale CSV thinks our machine is 김석현_Windows, their broadcast
+  // would otherwise add a duplicate 본인 row to our DB.
+  const rejected = [];
+  const valid = entries.filter((e) => {
+    if (!e || typeof e.name !== 'string' || !e.name) return false;
+    if (typeof e.host !== 'string' || !e.host) return false;
+    if (!Number.isInteger(e.port) || e.port < 1 || e.port > 65535) return false;
+    if (e.name === self) return false;
+    if (peerWatcher.isSelfEntry(e)) {
+      rejected.push({ ...e, reason: 'matches_local_self' });
+      return false;
+    }
+    return true;
+  });
+  if (rejected.length > 0) {
+    console.warn(
+      `[team] /peer-update: ${rejected.length} entries rejected as self-shaped (from ${origin || 'unknown'}):`,
+      rejected.map((r) => `${r.name}@${r.host}:${r.port}`).join(', ')
+    );
+  }
   if (valid.length === 0) {
-    return res.json({ accepted: 0, origin: origin || null });
+    return res.json({ accepted: 0, rejected: rejected.length, origin: origin || null });
   }
 
   // Echo prevention: remember these as recently-broadcast so the upcoming
@@ -505,7 +523,11 @@ router.post('/peer-remove', localOnly, (req, res) => {
   const name = (req.body && req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'missing_name' });
   const target = peerWatcher.getPeers().find((p) => p.name === name);
-  if (target && peerWatcher.isSelfEntry(target)) {
+  // 본인 항목 삭제 방지는 이름이 정확히 self.name 일 때만 적용. host+port 만
+  // 같고 이름이 다른 stale 행 (예: 옛 이름으로 등록된 본인 IP 항목) 은 삭제
+  // 허용 — 그게 사용자가 직접 정리하고 싶어 하는 흔한 케이스.
+  const selfName = settings.get().self.name;
+  if (target && peerWatcher.isSelfEntry(target) && target.name === selfName) {
     return res.status(403).json({ error: 'self_protected', detail: '본인 항목은 삭제할 수 없음' });
   }
   const ok = peerWatcher.removePeer(name);
