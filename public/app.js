@@ -926,9 +926,60 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     for (const e of _polls) e.stop();
   } else {
+    // 탭이 visible 로 돌아오면 등록된 모든 폴링 (loadTeamState, pollTeamEvents,
+    // checkAndReloadIfChanged 등) 을 즉시 1회 실행 + 인터벌 재시작.
+    // checkAndReloadIfChanged 는 자동으로 본인 DB 변경 여부도 검사한다.
     for (const e of _polls) { e.fn(); e.start(); }
   }
 });
+
+// ───── DB 변경 감지 + 조건부 reload (옵션 B) ─────
+// 서버의 computeVersion() 핑거프린트를 비교해 변경됐을 때만 본인 데이터를
+// 다시 fetch. 평소엔 ~100 바이트 응답 한 번 (변경 없을 때 reload 없음).
+let _lastSeenVersion = null;
+async function checkAndReloadIfChanged() {
+  let version;
+  try {
+    const res = await fetch('/api/version');
+    if (!res.ok) return;
+    const data = await res.json();
+    version = data && data.version;
+    if (!version) return;
+  } catch { return; /* network blip — 다음 기회 재시도 */ }
+
+  // 최초 호출: 기준값만 저장하고 reload 안 함 (boot 시점 데이터는 이미 신선).
+  if (_lastSeenVersion === null) {
+    _lastSeenVersion = version;
+    return;
+  }
+  if (version === _lastSeenVersion) return; // 변경 없음 — 화면 그대로
+
+  // 모달이 열려 있으면 사용자 입력 보호를 위해 reload skip.
+  // (모달 닫힌 뒤 다음 visibility/poll 사이클에 다시 시도됨)
+  if (document.querySelector('.modal:not(.hidden)')) {
+    console.log('[version-sync] modal open — skipping reload, will retry');
+    return;
+  }
+
+  try {
+    await refreshAll();
+    // 현재 scope 가 단순 카테고리 뷰가 아니면 그 view 의 추가 데이터도 갱신.
+    if (state.scope === 'all-reports' || state.scope === 'sprint-review') {
+      try { await loadAllReports(); } catch { /* non-fatal */ }
+    }
+    if (state.scope === 'sprint-review') {
+      try { await loadSprintGroups(); } catch { /* non-fatal */ }
+    }
+    if (typeof renderCategoryView === 'function') renderCategoryView();
+    _lastSeenVersion = version;
+  } catch (e) {
+    console.warn('[version-sync] reload 실패, 다음 기회 재시도:', e && e.message);
+  }
+}
+
+// 폴링: 탭이 활성 상태로 있더라도 다른 곳에서 변경 시 catch 하기 위함.
+// registerPoll 이라 탭 hidden 시 자동 정지 + visible 복귀 시 즉시 1회 실행.
+registerPoll(checkAndReloadIfChanged, 10000);
 
 // Number of comments on this report authored by the current user. Used to
 // surface "내 코멘트 N" badges so commenters can locate their own threads.

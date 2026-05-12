@@ -17,6 +17,7 @@ const teamSettings = require('./team/settings');
 const peerWatcher = require('./team/peerWatcher');
 const peerBroadcaster = require('./team/peerBroadcaster');
 const teamRouter = require('./routes/team');
+const exporter = require('./team/exporter');
 const backup = require('./backup');
 
 const app = express();
@@ -77,6 +78,15 @@ function canRead(req) {
 // explicit avoids future mistakes).
 app.get('/api/auth/me', (req, res) => {
   res.json({ ip: clientIp(req), canWrite: canWrite(req) });
+});
+
+// 본인 DB 변경 감지용 fingerprint endpoint. 프론트엔드가 탭 복귀·폴링 시
+// 이 값과 lastSeenVersion 을 비교해 다를 때만 본인 데이터를 다시 fetch.
+// exporter.computeVersion() 은 categories/schedules/dependencies/reports/
+// report_comments/sprint_groups 의 COUNT + MAX(updated_at) 조합이라
+// row 추가·수정·삭제를 모두 잡는다 (~100 바이트 응답).
+app.get('/api/version', (req, res) => {
+  res.json({ version: exporter.computeVersion() });
 });
 
 // Team router is mounted BEFORE the IP write-guard so cross-peer endpoints
