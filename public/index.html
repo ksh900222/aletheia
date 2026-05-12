@@ -20,6 +20,9 @@
     <span class="topbar-spacer"></span>
     <button id="team-toggle-btn" class="team-toggle-btn" title="팀원들의 일정·리포트를 함께 보기 (ON/OFF)">팀 전체계획 OFF</button>
     <button id="team-manage-btn" class="team-status-btn" title="팀원 목록 관리 (추가/편집/삭제 + CSV 일괄 입력)">팀원 관리</button>
+    <button id="archive-manage-btn" class="team-status-btn" title="팀원 데이터 보관소 (떠난 팀원의 DB 가져오기 / 내보내기)">데이터 보관</button>
+    <button id="freeze-btn" class="team-status-btn" title="프로젝트 전체를 read-only 로 동결 (해제는 team_settings.json 직접 편집 필요)">🔒 프로젝트 동결</button>
+    <span id="frozen-banner" class="frozen-banner hidden" title="프로젝트가 동결되어 모든 편집이 차단되었습니다">🔒 동결됨</span>
     <button id="team-status-btn" class="team-status-btn hidden" title="팀 연결 상태 보기">상태</button>
     <button id="team-refresh-topbar-btn" class="team-status-btn hidden" title="팀원 데이터 즉시 갱신">갱신</button>
   </header>
@@ -174,6 +177,46 @@
   </main>
 
   <!-- Category modal -->
+  <!-- Archive management modal -->
+  <div id="archive-modal" class="modal hidden">
+    <div class="modal-card archive-card">
+      <h3>팀원 데이터 보관소</h3>
+
+      <section class="archive-section">
+        <h4>내 데이터 내보내기</h4>
+        <p class="muted">현재 인스턴스의 모든 데이터 (스프린트 리뷰 제외) 를 ZIP 으로 다운로드. 떠나기 전 누군가에게 전달하면 받는 사람이 보관할 수 있음.</p>
+        <button type="button" id="archive-export-btn" class="btn">📦 내 데이터 ZIP 다운로드</button>
+      </section>
+
+      <section class="archive-section">
+        <h4>팀원 데이터 가져오기 (peer 가 온라인일 때)</h4>
+        <p class="muted">현재 팀 목록에서 한 명 선택. 그 사람의 서버가 켜져 있어야 함.</p>
+        <div class="archive-row">
+          <select id="archive-peer-select"></select>
+          <button type="button" id="archive-import-peer-btn" class="btn btn-primary">가져오기</button>
+        </div>
+      </section>
+
+      <section class="archive-section">
+        <h4>ZIP 파일에서 가져오기</h4>
+        <p class="muted">B 가 미리 내보낸 ZIP 파일을 업로드.</p>
+        <div class="archive-row">
+          <input type="file" id="archive-file-input" accept=".zip" />
+          <button type="button" id="archive-import-file-btn" class="btn btn-primary">업로드 + 가져오기</button>
+        </div>
+      </section>
+
+      <section class="archive-section">
+        <h4>현재 보관 중인 팀원</h4>
+        <div id="archived-peers-list" class="archived-peers-list"></div>
+      </section>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sprint review group create modal -->
   <div id="sprint-group-modal" class="modal hidden">
     <div class="modal-card">

@@ -330,5 +330,119 @@ try {
   console.error('[db] sprint_groups migration failed:', e.message);
 }
 
+// Imported peer archive tables — mirror the live data tables but per-owner.
+// When a teammate leaves the project, the coordinator imports a ZIP of that
+// peer's full data into these tables. Rows here are read-only from the UI;
+// mutating routes refuse to touch them (see route guards). Each (owner, id)
+// composite PK preserves the peer's local ids so internal FKs (category ↔
+// schedule, schedule ↔ report) remain intact across the import.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS imported_categories (
+      owner       TEXT NOT NULL,
+      id          INTEGER NOT NULL,
+      name        TEXT NOT NULL,
+      description TEXT,
+      color       TEXT,
+      created_at  TEXT NOT NULL,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_categories_owner ON imported_categories(owner);
+
+    CREATE TABLE IF NOT EXISTS imported_schedules (
+      owner          TEXT NOT NULL,
+      id             INTEGER NOT NULL,
+      category_id    INTEGER NOT NULL,
+      title          TEXT NOT NULL,
+      description    TEXT,
+      planned_start  TEXT NOT NULL,
+      planned_end    TEXT NOT NULL,
+      actual_start   TEXT,
+      actual_end     TEXT,
+      status         TEXT NOT NULL DEFAULT 'pending',
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_schedules_owner ON imported_schedules(owner);
+    CREATE INDEX IF NOT EXISTS idx_imported_schedules_category ON imported_schedules(owner, category_id);
+
+    CREATE TABLE IF NOT EXISTS imported_dependencies (
+      owner        TEXT NOT NULL,
+      id           INTEGER NOT NULL,
+      pred_type    TEXT NOT NULL,
+      pred_id      INTEGER NOT NULL,
+      succ_type    TEXT NOT NULL,
+      succ_id      INTEGER NOT NULL,
+      link_type    TEXT NOT NULL,
+      on_delay     TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_deps_owner ON imported_dependencies(owner);
+
+    CREATE TABLE IF NOT EXISTS imported_reports (
+      owner        TEXT NOT NULL,
+      id           INTEGER NOT NULL,
+      report_date  TEXT NOT NULL,
+      body         TEXT NOT NULL DEFAULT '',
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_reports_owner ON imported_reports(owner);
+
+    CREATE TABLE IF NOT EXISTS imported_report_categories (
+      owner       TEXT NOT NULL,
+      report_id   INTEGER NOT NULL,
+      category_id INTEGER NOT NULL,
+      PRIMARY KEY (owner, report_id, category_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS imported_report_schedules (
+      owner       TEXT NOT NULL,
+      report_id   INTEGER NOT NULL,
+      schedule_id INTEGER NOT NULL,
+      PRIMARY KEY (owner, report_id, schedule_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS imported_attachments (
+      owner         TEXT NOT NULL,
+      id            INTEGER NOT NULL,
+      report_id     INTEGER NOT NULL,
+      kind          TEXT NOT NULL,
+      path          TEXT NOT NULL,
+      display_name  TEXT NOT NULL,
+      size_bytes    INTEGER,
+      created_at    TEXT NOT NULL,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_attachments_report
+      ON imported_attachments(owner, report_id);
+
+    CREATE TABLE IF NOT EXISTS imported_report_comments (
+      owner        TEXT NOT NULL,
+      id           INTEGER NOT NULL,
+      report_id    INTEGER NOT NULL,
+      author       TEXT NOT NULL,
+      body         TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      acknowledged INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (owner, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_imported_report_comments_report
+      ON imported_report_comments(owner, report_id);
+
+    CREATE TABLE IF NOT EXISTS imported_peers (
+      owner          TEXT PRIMARY KEY,
+      imported_at    TEXT NOT NULL,
+      source_version TEXT,
+      source_host    TEXT
+    );
+  `);
+} catch (e) {
+  console.error('[db] imported_* migration failed:', e.message);
+}
+
 module.exports = db;
 module.exports.DB_PATH = DB_PATH;
