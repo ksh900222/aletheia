@@ -18,6 +18,7 @@ const peerWatcher = require('./team/peerWatcher');
 const peerBroadcaster = require('./team/peerBroadcaster');
 const teamRouter = require('./routes/team');
 const exporter = require('./team/exporter');
+const teamEvents = require('./team/events');
 const backup = require('./backup');
 
 const app = express();
@@ -28,6 +29,29 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '1mb' }));
+
+// DB 변경 이벤트 자동 emit — mutating 요청이 2xx 로 응답 마무리되는 시점에
+// SSE 이벤트 'db_changed' 를 한 번 발사. 다른 탭/브라우저의 EventSource 가
+// 즉시 받아 본인 데이터를 새로고침 (frontend 의 checkAndReloadIfChanged
+// 트리거). 같은 요청을 보낸 탭도 함께 받지만 frontend 가 version 비교로
+// no-op 처리하므로 무해.
+app.use((req, res, next) => {
+  const m = req.method;
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
+  res.on('finish', () => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      try {
+        teamEvents.record('db_changed', {
+          method: m,
+          path: req.path,
+        });
+      } catch (e) {
+        console.warn('[events] db_changed emit 실패:', e && e.message);
+      }
+    }
+  });
+  next();
+});
 
 // IP-based authorization. Two complementary allowlists:
 //

@@ -979,7 +979,9 @@ async function checkAndReloadIfChanged() {
 
 // 폴링: 탭이 활성 상태로 있더라도 다른 곳에서 변경 시 catch 하기 위함.
 // registerPoll 이라 탭 hidden 시 자동 정지 + visible 복귀 시 즉시 1회 실행.
-registerPoll(checkAndReloadIfChanged, 10000);
+// 3초 주기 — SSE 가 안 닿는 경우 (네트워크 불안정·서버 일시 재시작 등) 의
+// 안전망. 평소엔 SSE push 가 먼저 도착하므로 폴링은 거의 no-op.
+registerPoll(checkAndReloadIfChanged, 3000);
 
 // Number of comments on this report authored by the current user. Used to
 // surface "내 코멘트 N" badges so commenters can locate their own threads.
@@ -4791,6 +4793,13 @@ async function pollTeamEvents() {
 }
 
 function handleTeamEvent(ev) {
+  // db_changed 는 본인 서버에서 어떤 mutating 응답이 성공할 때마다 emit.
+  // 즉시 version 비교 → 변경됐으면 refresh. 가장 빠른 반응 경로 (~50ms).
+  // 3초 폴링은 SSE 가 끊겼을 때 안전망 역할.
+  if (ev.kind === 'db_changed') {
+    if (typeof checkAndReloadIfChanged === 'function') checkAndReloadIfChanged();
+    return;
+  }
   if (ev.kind === 'csv_reload') {
     showToast('peer 목록 갱신됨', 'info', 2500);
     refreshTeamManageListIfOpen();
