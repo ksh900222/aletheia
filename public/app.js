@@ -5045,7 +5045,6 @@ const teamManageEls = {
   csvText:     document.getElementById('team-manage-csv'),
   csvFile:     document.getElementById('team-manage-csv-file'),
   csvApply:    document.getElementById('team-manage-csv-apply'),
-  announceBtn: document.getElementById('team-manage-announce-btn'),
   tokenInput:  document.getElementById('team-manage-token-input'),
   tokenSave:   document.getElementById('team-manage-token-save'),
 };
@@ -5320,21 +5319,10 @@ if (teamManageEls.openBtn) {
   teamManageEls.openBtn.addEventListener('click', openTeamManageModal);
 }
 
-if (teamManageEls.announceBtn) {
-  teamManageEls.announceBtn.addEventListener('click', async () => {
-    try {
-      const res = await fetch('/api/team/peer-announce', { method: 'POST' });
-      if (!res.ok) {
-        showToast('전파 실패', 'error');
-        return;
-      }
-      const data = await res.json();
-      showToast(`내 목록 전파 완료 (${data.sent || 0}개 항목)`);
-    } catch (e) {
-      showToast(`전파 오류: ${e.message}`, 'error');
-    }
-  });
-}
+// 「내 목록 전파」 버튼은 UI 에서 제거됨 — boot announce + onChange broadcast
+// 가 자동으로 같은 일을 하므로 수동 트리거가 사실상 redundant 였음.
+// /api/team/peer-announce 라우트와 broadcaster.announceCurrentList 함수는
+// admin / debugging 용도로 유지.
 
 loadTeamState();
 
