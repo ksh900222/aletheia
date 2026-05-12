@@ -2202,6 +2202,7 @@ async function selectCategory(id) {
   renderCategories();
   await Promise.all([loadSchedules(id), loadReports(id)]);
   renderCategoryView();
+  queueSaveLastView();
 }
 
 function selectAllView() {
@@ -2227,6 +2228,7 @@ function selectAllView() {
   els.chainSortBtn.textContent = '체인정렬 ON';
   renderCategories();
   renderCategoryView();
+  queueSaveLastView();
 }
 
 async function selectAllReportsView() {
@@ -2240,6 +2242,7 @@ async function selectAllReportsView() {
   renderCategories();
   await loadAllReports();
   renderCategoryView();
+  queueSaveLastView();
 }
 
 async function loadAllReports() {
@@ -3844,6 +3847,7 @@ async function selectSprintReviewView() {
     state.activeSprintGroupKey = allKeys[0] || null;
   }
   renderCategoryView();
+  queueSaveLastView();
 }
 
 function syncSprintReviewToolbar() {
@@ -3949,6 +3953,7 @@ if (els.sprintReviewGroups) {
     state.sprintReview.selected.clear();
     state.sprintReview.originalMembers = null;
     renderAllReportsView();
+    queueSaveLastView();
   });
 }
 
@@ -4434,8 +4439,59 @@ function makeTableResizable(tableEl) {
   });
 }
 
+// ---------- 마지막 본 영역 기억 (localStorage) ----------
+// 새로고침해도 사용자가 보던 카테고리/scope 로 복귀. boot 시 categories
+// 로드 후 한 번만 사용 — 이후 모든 scope 전환은 setLastView() 가 즉시 갱신.
+const LAST_VIEW_KEY = 'aletheia.lastView';
+function saveLastView() {
+  try {
+    localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({
+      scope: state.scope,
+      categoryId: state.selectedCategoryId,
+      sprintGroupKey: state.activeSprintGroupKey,
+    }));
+  } catch { /* localStorage 비활성 — 무시 */ }
+}
+function readLastView() {
+  try {
+    const raw = localStorage.getItem(LAST_VIEW_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+// scope 전환 함수들이 boot 이후 호출될 때마다 자동 저장.
+// selectCategory / selectAllView / selectAllReportsView / selectSprintReviewView
+// 안에 saveLastView() 를 호출하지 않고 setInterval-free 방식: state 변화 후
+// 다음 microtask 에 1회 저장 (debounce 효과).
+let _saveLastViewQueued = false;
+function queueSaveLastView() {
+  if (_saveLastViewQueued) return;
+  _saveLastViewQueued = true;
+  queueMicrotask(() => {
+    _saveLastViewQueued = false;
+    saveLastView();
+  });
+}
+
 // ---------- Init ----------
 refreshAll().then(() => {
+  const saved = readLastView();
+  if (saved) {
+    if (saved.scope === 'category' && saved.categoryId) {
+      const exists = state.categories.find((c) => c.id === saved.categoryId);
+      if (exists) { selectCategory(saved.categoryId); return; }
+    }
+    if (saved.scope === 'all') { selectAllView(); return; }
+    if (saved.scope === 'all-reports') { selectAllReportsView(); return; }
+    if (saved.scope === 'sprint-review') {
+      // activeSprintGroupKey 는 selectSprintReviewView 가 그룹 로드 후 결정.
+      // 저장된 키가 살아 있으면 그 그룹으로 자동 활성.
+      if (saved.sprintGroupKey) state.activeSprintGroupKey = saved.sprintGroupKey;
+      selectSprintReviewView();
+      return;
+    }
+  }
+  // 저장된 게 없거나 무효 → 기본 동작 (첫 카테고리)
   if (!state.selectedCategoryId && state.categories.length > 0) {
     selectCategory(state.categories[0].id);
   }
