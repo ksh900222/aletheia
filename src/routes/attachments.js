@@ -58,11 +58,14 @@ router.post(
     if (!req.file) {
       return res.status(400).json({ error: 'no_file' });
     }
+    // multer/busboy 가 Content-Disposition 헤더의 filename 을 기본 latin1 로
+    // 디코드해 UTF-8 한글 등이 깨진다. 원본 UTF-8 바이트로 되돌린다.
+    const displayName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
     const info = insertAttachment.run(
       reportId,
       'upload',
       req.file.filename,
-      req.file.originalname,
+      displayName,
       req.file.size
     );
     res.status(201).json(getAttachment.get(info.lastInsertRowid));

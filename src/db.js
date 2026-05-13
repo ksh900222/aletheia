@@ -478,5 +478,53 @@ try {
   console.error('[db] imported_* migration failed:', e.message);
 }
 
+// Migration: 첨부파일 display_name 의 mojibake 일괄 교정. multer/busboy 가
+// Content-Disposition 의 filename 을 latin1 으로 디코드해서 한글 UTF-8 바이트
+// 가 깨진 상태로 DB 에 저장된 케이스가 있다. 이번 부팅에 한 번만 실행되어
+// 깨진 행만 골라 복구. schema_migrations 마커로 idempotent 보장.
+//
+// 안전장치:
+//  1. 이미 한글·CJK 가 들어 있으면 손대지 않음 (정상으로 간주)
+//  2. latin1→UTF-8 재해독 결과에 replacement char (U+FFFD) 가 있으면 폐기
+//  3. 재해독 결과가 한글·CJK 를 포함할 때만 채택 (mojibake → 한글 복원 케이스)
+//  4. 위 조건 모두 통과한 행만 UPDATE
+try {
+  const already = db
+    .prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`)
+    .get('fix_attachments_mojibake_v1');
+  if (!already) {
+    const hasCjk = (s) => /[가-힯一-鿿぀-ヿ]/.test(s);
+    const hasLatin1Ext = (s) => /[-ÿ]/.test(s);
+    function tryFixMojibake(s) {
+      if (typeof s !== 'string' || !s) return null;
+      if (hasCjk(s)) return null;            // 이미 정상
+      if (!hasLatin1Ext(s)) return null;     // 깨질 여지 없는 ASCII
+      try {
+        const decoded = Buffer.from(s, 'latin1').toString('utf8');
+        if (decoded.includes('�')) return null;  // 잘못된 변환
+        if (!hasCjk(decoded)) return null;            // 한글 복원 아님 — 손대지 않음
+        return decoded;
+      } catch { return null; }
+    }
+    const rows = db.prepare(`SELECT id, display_name FROM attachments`).all();
+    const upd = db.prepare(`UPDATE attachments SET display_name = ? WHERE id = ?`);
+    let fixed = 0;
+    db.transaction(() => {
+      for (const r of rows) {
+        const candidate = tryFixMojibake(r.display_name);
+        if (candidate && candidate !== r.display_name) {
+          upd.run(candidate, r.id);
+          fixed += 1;
+        }
+      }
+      db.prepare(`INSERT INTO schema_migrations (name) VALUES (?)`)
+        .run('fix_attachments_mojibake_v1');
+    })();
+    if (fixed > 0) console.log(`[db] fix_attachments_mojibake_v1: ${fixed}개 행 복구`);
+  }
+} catch (e) {
+  console.error('[db] fix_attachments_mojibake_v1 migration failed:', e.message);
+}
+
 module.exports = db;
 module.exports.DB_PATH = DB_PATH;
