@@ -183,7 +183,13 @@ app.use('/api/schedules', schedulesRouter);
 app.use('/api/dependencies', dependenciesRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api', attachmentsRouter); // exposes /api/reports/:id/attachments/* and /api/attachments/:id
-app.use('/api/tasks', tasksRouter);
+// 업무요청 (보낸·받은 내역 포함) 은 민감 정보 → canWrite 만 접근 가능.
+// COMMENT/READ 등급 IP 와 일반 LAN 사용자는 GET 목록도 차단. team router 의
+// task-request-in / task-response-in 은 별도 (token 인증으로 cross-peer 만).
+app.use('/api/tasks', (req, res, next) => {
+  if (canWrite(req)) return next();
+  return res.status(403).json({ error: 'forbidden_tasks_from_ip', ip: clientIp(req) });
+}, tasksRouter);
 app.use('/api/sprint-groups', sprintGroupsRouter);
 app.use('/api/archive', archiveRouter);
 
