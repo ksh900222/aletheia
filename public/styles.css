@@ -191,6 +191,24 @@ html, body {
   flex-shrink: 0;
   background: var(--primary);
 }
+/* 카테고리 이름이 남은 공간 차지 → 체크박스+라벨이 오른쪽 끝으로 밀림 */
+.category-list .cat-name { flex: 1; min-width: 0; }
+.category-list .hide-from-gantt-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.category-list .hide-from-gantt-cb {
+  margin: 0;
+  cursor: pointer;
+}
+.category-list .hide-from-gantt-label {
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+  letter-spacing: 0.02em;
+}
 
 .muted { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
 

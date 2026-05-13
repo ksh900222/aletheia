@@ -7,10 +7,10 @@ const router = express.Router();
 const listStmt = db.prepare(`SELECT * FROM categories ORDER BY id ASC`);
 const getStmt = db.prepare(`SELECT * FROM categories WHERE id = ?`);
 const insertStmt = db.prepare(
-  `INSERT INTO categories (name, description, color) VALUES (?, ?, ?)`
+  `INSERT INTO categories (name, description, color, hide_from_all_gantt) VALUES (?, ?, ?, ?)`
 );
 const updateStmt = db.prepare(
-  `UPDATE categories SET name = ?, description = ?, color = ? WHERE id = ?`
+  `UPDATE categories SET name = ?, description = ?, color = ?, hide_from_all_gantt = ? WHERE id = ?`
 );
 const deleteStmt = db.prepare(`DELETE FROM categories WHERE id = ?`);
 const deleteDepsByCategory = db.prepare(
@@ -32,12 +32,20 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, description = null, color = null } = req.body || {};
+  const {
+    name,
+    description = null,
+    color = null,
+    hide_from_all_gantt = 0,
+  } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name_required' });
   }
   try {
-    const info = insertStmt.run(name.trim(), description, color);
+    const info = insertStmt.run(
+      name.trim(), description, color,
+      hide_from_all_gantt ? 1 : 0,
+    );
     res.status(201).json(getStmt.get(info.lastInsertRowid));
   } catch (e) {
     if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -55,12 +63,17 @@ router.put('/:id', (req, res) => {
     name = existing.name,
     description = existing.description,
     color = existing.color,
+    hide_from_all_gantt = existing.hide_from_all_gantt,
   } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name_required' });
   }
   try {
-    updateStmt.run(name.trim(), description, color, id);
+    updateStmt.run(
+      name.trim(), description, color,
+      hide_from_all_gantt ? 1 : 0,
+      id,
+    );
     res.json(getStmt.get(id));
   } catch (e) {
     if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
