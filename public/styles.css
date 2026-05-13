@@ -191,24 +191,6 @@ html, body {
   flex-shrink: 0;
   background: var(--primary);
 }
-/* 카테고리 이름이 남은 공간 차지 → 체크박스+라벨이 오른쪽 끝으로 밀림 */
-.category-list .cat-name { flex: 1; min-width: 0; }
-.category-list .hide-from-gantt-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.category-list .hide-from-gantt-cb {
-  margin: 0;
-  cursor: pointer;
-}
-.category-list .hide-from-gantt-label {
-  font-size: 10px;
-  color: var(--muted);
-  user-select: none;
-  letter-spacing: 0.02em;
-}
 
 .muted { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
 
@@ -2399,3 +2381,20 @@ body.project-frozen .schedule-toolbar .btn:not(.view-btn) {
   /* visual cue; the server is the actual source of truth */
 }
 body.project-frozen #freeze-btn { display: none !important; }
+
+/* 「전체 간트에서 숨기기」 토글 — 카테고리 페이지 상단의 actions 영역에
+   체크박스 + 라벨로 배치. 편집·삭제 버튼과 인라인. */
+.cat-hide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  margin-right: 6px;
+}
+.cat-hide-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
