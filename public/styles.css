@@ -353,8 +353,9 @@ html, body {
 
 /* Higher specificity so the .modal-card base rule (defined later) doesn't
    override these widths via cascade order. Left column = original modal
-   form width (560px); right column = comments panel (~430px). */
-.modal-card.report-modal-card { width: 1064px; max-width: 96vw; }
+   form width (560px, fixed); right column (comments panel) takes the rest —
+   widening the modal grows only the comments side. */
+.modal-card.report-modal-card { width: 1300px; max-width: 96vw; }
 .report-modal-grid {
   display: grid;
   grid-template-columns: 560px 1fr;
@@ -1428,7 +1429,7 @@ body.readonly.can-comment .team-comment-edit-actions .btn-primary {
 /* Team report read-only viewer. */
 .modal-card.team-report-viewer-card {
   min-width: 900px;
-  width: 1200px;
+  width: 1400px;
   max-width: 96vw;
   max-height: 86vh;
   display: flex;
@@ -1436,7 +1437,7 @@ body.readonly.can-comment .team-comment-edit-actions .btn-primary {
 }
 .team-report-viewer-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 0.8fr 1fr;
   gap: 18px;
   flex: 1;
   min-height: 0;
