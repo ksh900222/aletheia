@@ -70,6 +70,8 @@ const WRITE_ALLOWLIST = new Set([
   // 추가 IP 가 필요하면 여기에 적고 재시작.
 ]);
 const COMMENT_ALLOWLIST = new Set([
+    '10.115.33.155',
+    '10.115.35.86',
   // 코멘트 + 다운로드만 허용할 IP. 예: 외부 협력자 PC.
 ]);
 const READ_ALLOWLIST = new Set([
@@ -96,6 +98,27 @@ function canComment(req) {
   return COMMENT_ALLOWLIST.has(clientIp(req));
 }
 
+// 코멘트 작성자 이름. canWrite (호스트 운영자) 는 self.name 으로, 외부
+// COMMENT_ALLOWLIST IP 는 "외부(<ip>)" 로 식별. 이 값이 author 컬럼에 들어가고,
+// 본인 코멘트 매칭 (수정/삭제 권한, 「내 코멘트 N」 배지) 의 기준이 된다.
+function commentAuthor(req) {
+  if (canWrite(req)) {
+    const self = teamSettings.get().self;
+    return (self && self.name) || '';
+  }
+  return `외부(${clientIp(req)})`;
+}
+
+// 모든 요청에 권한 / IP / 작성자 식별을 부착. 하위 라우터 (team.js 등) 가
+// canWrite/canComment 를 자기들 모듈에서 다시 계산할 필요 없이 req 만 보면 됨.
+app.use((req, res, next) => {
+  req.clientIp = clientIp(req);
+  req.canWrite = canWrite(req);
+  req.canComment = canComment(req);
+  req.commentAuthor = commentAuthor(req);
+  next();
+});
+
 // 첨부 다운로드 권한: canWrite 또는 COMMENT_ALLOWLIST 또는 READ_ALLOWLIST
 // 또는 등록된 team peer 만 허용. LAN 의 비-허가 PC 는 차단.
 function canRead(req) {
@@ -110,7 +133,12 @@ function canRead(req) {
 // reachable (it's a GET, so the guard would let it through anyway, but being
 // explicit avoids future mistakes).
 app.get('/api/auth/me', (req, res) => {
-  res.json({ ip: clientIp(req), canWrite: canWrite(req) });
+  res.json({
+    ip: clientIp(req),
+    canWrite: canWrite(req),
+    canComment: canComment(req),
+    commenterName: commentAuthor(req),
+  });
 });
 
 // 본인 DB 변경 감지용 fingerprint endpoint. 프론트엔드가 탭 복귀·폴링 시

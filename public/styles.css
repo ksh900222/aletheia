@@ -1150,6 +1150,22 @@ body.readonly .modal select {
   background: var(--panel-3);
   color: var(--muted);
 }
+/* Comment-only mode (COMMENT_ALLOWLIST IP): readonly stays for everything
+   except the team-report comment form. Re-enable the input/save button so
+   본인 코멘트 작성·편집·삭제 affordances stay live. 본인 코멘트의 「편집」
+   /「삭제」 (btn-link) buttons aren't in the hide list, so they're already
+   visible — only the form textarea/submit and the edit-mode 저장 button
+   need to be unblocked here. */
+body.readonly.can-comment #team-comments-input,
+body.readonly.can-comment .team-comment-edit-input {
+  pointer-events: auto;
+  background: var(--panel-2);
+  color: var(--text);
+}
+body.readonly.can-comment #team-comments-submit,
+body.readonly.can-comment .team-comment-edit-actions .btn-primary {
+  display: inline-block !important;
+}
 
 /* ───── Team coworking ───── */
 
