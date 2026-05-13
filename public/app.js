@@ -36,7 +36,9 @@ const state = {
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
   canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
+  canComment: true,       // COMMENT_ALLOWLIST tier — readonly except comment post/edit/delete
   clientIp: null,         // remote IP as the server saw us — shown in the read-only banner
+  commenterName: '',      // author string the server attaches to OUR comments — used for is-mine matching
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -135,7 +137,7 @@ async function api(method, url, body) {
     // into read-only mode so subsequent clicks get a friendly message
     // instead of repeating round-trips.
     if (res.status === 403 && data && data.error === 'forbidden_write_from_ip') {
-      applyReadOnlyMode(data.ip);
+      applyReadOnlyMode(data.ip, { canComment: state.canComment });
       const err = new Error('쓰기 권한이 없습니다 (허용된 IP에서만 가능).');
       err.status = 403;
       err.body = data;
@@ -149,11 +151,16 @@ async function api(method, url, body) {
   return data;
 }
 
-function applyReadOnlyMode(ip) {
+function applyReadOnlyMode(ip, opts) {
   if (!state.canWrite && document.body.classList.contains('readonly')) return;
   state.canWrite = false;
   if (ip) state.clientIp = ip;
   document.body.classList.add('readonly');
+  // COMMENT_ALLOWLIST IPs: keep readonly for write affordances, but mark body
+  // so comment form / save button / edit textarea stay enabled (see CSS).
+  const canComment = !!(opts && opts.canComment);
+  state.canComment = canComment;
+  if (canComment) document.body.classList.add('can-comment');
   let banner = document.getElementById('readonly-banner');
   if (!banner) {
     banner = document.createElement('div');
@@ -162,7 +169,9 @@ function applyReadOnlyMode(ip) {
     document.body.prepend(banner);
   }
   const ipText = state.clientIp ? ` (현재 IP: ${state.clientIp})` : '';
-  banner.textContent = `읽기 전용 모드 — 이 IP에서는 추가/수정/삭제가 불가능합니다.${ipText}`;
+  banner.textContent = canComment
+    ? `코멘트 전용 모드 — 본인이 작성한 코멘트의 등록·수정·삭제만 가능합니다.${ipText}`
+    : `읽기 전용 모드 — 이 IP에서는 추가/수정/삭제가 불가능합니다.${ipText}`;
 }
 
 // Boot-time IP check. The server is the source of truth; we just mirror its
@@ -172,7 +181,8 @@ function applyReadOnlyMode(ip) {
   try {
     const me = await fetch('/api/auth/me').then((r) => r.json());
     state.clientIp = me.ip || null;
-    if (!me.canWrite) applyReadOnlyMode(me.ip);
+    state.commenterName = me.commenterName || '';
+    if (!me.canWrite) applyReadOnlyMode(me.ip, { canComment: !!me.canComment });
   } catch {
     // Network hiccup at boot: leave canWrite=true; the server still enforces.
   }
@@ -3853,7 +3863,17 @@ els.allReportsContent.addEventListener('click', (e) => {
     return;
   }
   const r = state.allReports.find((x) => x.id === id);
-  if (r) openReportModal(r);
+  if (!r) return;
+  // Comment-only viewer (외부 협력자): owns nothing on this server, so the
+  // "본인 리포트 모달" (no input form) is the wrong UI — show the team viewer
+  // which has the comment form. owner is left empty here; openTeamReportViewer
+  // falls back to state.team.self.name so comment-out forwards to the local
+  // self-peer and writes the comment via /api/team/comment-in.
+  if (!state.canWrite && state.canComment) {
+    openTeamReportViewer(r);
+    return;
+  }
+  openReportModal(r);
 });
 
 // ---------- Sprint review ----------
@@ -4161,7 +4181,11 @@ if (els.sprintGroupModal) {
 function openTeamReportViewer(r) {
   const m = document.getElementById('team-report-viewer-modal');
   if (!m) return;
-  document.getElementById('team-report-viewer-owner').textContent = r.owner || '';
+  // Comment-only viewers see local reports here; r.owner is empty. Resolve to
+  // the host's self-name so the comment-out → self-peer → comment-in loop has
+  // a target to look up.
+  const effectiveOwner = r.owner || (state.team.self && state.team.self.name) || '';
+  document.getElementById('team-report-viewer-owner').textContent = effectiveOwner;
   document.getElementById('team-report-viewer-date').textContent = r.report_date || '';
 
   const catsEl = document.getElementById('team-report-viewer-cats');
@@ -4192,10 +4216,13 @@ function openTeamReportViewer(r) {
   const attEl = document.getElementById('team-report-viewer-attachments');
   attEl.innerHTML = '';
   for (const a of (r.attachments || [])) {
-    if (a.kind === 'upload' && a.peerHost && a.peerPort) {
-      // Direct download from the peer's static /uploads/ path. Opens in a
-      // new tab; the browser handles either inline rendering or download.
-      const href = `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}/uploads/${encodeURIComponent(a.path)}`;
+    if (a.kind === 'upload') {
+      // Peer-imported uploads carry peerHost/peerPort; local reports (e.g.,
+      // comment-only viewer browsing this host's own reports) have neither,
+      // so fall back to same-origin /uploads/.
+      const href = (a.peerHost && a.peerPort)
+        ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}/uploads/${encodeURIComponent(a.path)}`
+        : `/uploads/${encodeURIComponent(a.path)}`;
       const link = document.createElement('a');
       link.className = 'att-chip';
       link.href = href;
@@ -4223,10 +4250,12 @@ function openTeamReportViewer(r) {
   }
 
   // Comments panel — track which report we're commenting on so the submit
-  // handler can route to the right peer and report.
-  m.dataset.owner = r.owner || '';
+  // handler can route to the right peer and report. For local reports viewed
+  // by comment-only users, fall back to self.name (the host's own peer entry)
+  // so submitTeamComment → /api/team/comment-out resolves a target.
+  m.dataset.owner = effectiveOwner;
   m.dataset.reportId = String(r.id);
-  renderTeamCommentsList(r.comments || [], r.owner || '');
+  renderTeamCommentsList(r.comments || [], effectiveOwner);
   const inputEl = document.getElementById('team-comments-input');
   if (inputEl) inputEl.value = '';
 
@@ -4245,7 +4274,12 @@ function renderCommentsInto(listId, countId, comments, opts) {
   const ackable = !!(opts && opts.ackable);
   const owner = (opts && opts.owner) || '';
   const reportId = (opts && opts.reportId) || '';
-  const selfName = (state.team.self && state.team.self.name) || '';
+  // selfName drives "본인 코멘트" matching for editable + ack visibility.
+  // state.commenterName (from /api/auth/me) is the canonical author the server
+  // uses for OUR posts — for canWrite users it's self.name, for COMMENT-only
+  // IPs it's "외부(<ip>)". Falling back to state.team.self.name keeps older
+  // call sites working before commenterName is loaded.
+  const selfName = state.commenterName || (state.team.self && state.team.self.name) || '';
   list.innerHTML = '';
   if (count) count.textContent = arr.length > 0 ? `(${arr.length})` : '';
   if (arr.length === 0) {
@@ -4376,28 +4410,41 @@ async function submitTeamComment() {
     const optimistic = {
       id: data.id || `local-${Date.now()}`,
       report_id: reportId,
-      author: data.author || (state.team.self && state.team.self.name) || '?',
+      author: data.author || state.commenterName || (state.team.self && state.team.self.name) || '?',
       body,
       created_at: new Date().toISOString(),
       owner,
     };
-    const r = state.team.merged.reports.find(
+    // Peer-imported reports live in state.team.merged.reports; local reports
+    // (comment-only viewers commenting on this host's own reports) live in
+    // state.allReports. Update whichever holds this id.
+    const teamReport = state.team.merged.reports.find(
       (x) => x.id === reportId && x.owner === owner
     );
-    if (r) {
-      r.comments = [...(r.comments || []), optimistic];
-      renderTeamCommentsList(r.comments, owner);
+    const localReport = teamReport
+      ? null
+      : state.allReports.find((x) => x.id === reportId);
+    const target = teamReport || localReport;
+    if (target) {
+      target.comments = [...(target.comments || []), optimistic];
+      renderTeamCommentsList(target.comments, owner);
       if (state.scope === 'all-reports' && typeof renderAllReportsView === 'function') {
         renderAllReportsView();
       }
     }
 
-    // Background sync to canonicalize without blocking the UI. If the user
-    // closes and reopens the modal a few seconds later, they'll see the
-    // server-side authoritative version (same content, just real id/ts).
+    // Background sync to canonicalize without blocking the UI. For peer reports
+    // we re-pull the team merge; for local reports we refresh state.allReports.
     (async () => {
-      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
-      try { await loadTeamMerged(); } catch {}
+      if (teamReport) {
+        try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+        try { await loadTeamMerged(); } catch {}
+      } else if (localReport) {
+        try { state.allReports = await api('GET', '/api/reports'); } catch {}
+        if (state.scope === 'all-reports' && typeof renderAllReportsView === 'function') {
+          renderAllReportsView();
+        }
+      }
     })();
   } catch (e) {
     showToast(`코멘트 오류: ${e.message}`, 'error');
@@ -5139,20 +5186,26 @@ async function saveCommentEdit(owner, commentId, newBody) {
       return;
     }
     showToast('코멘트가 수정되었습니다');
-    // Optimistic update — patch local state.team.merged and re-render.
+    // Optimistic update — patch whichever store holds this report.
     const reportId = Number(document.getElementById('team-report-viewer-modal')?.dataset.reportId || 0);
-    const r = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
-    if (r && Array.isArray(r.comments)) {
-      r.comments = r.comments.map((c) =>
+    const teamReport = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
+    const localReport = teamReport ? null : state.allReports.find((x) => x.id === reportId);
+    const target = teamReport || localReport;
+    if (target && Array.isArray(target.comments)) {
+      target.comments = target.comments.map((c) =>
         Number(c.id) === Number(commentId) ? { ...c, body: newBody } : c
       );
-      renderTeamCommentsList(r.comments, owner);
+      renderTeamCommentsList(target.comments, owner);
       if (state.scope === 'all-reports') renderAllReportsView();
     }
-    // Background sync for canonicalization.
     (async () => {
-      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
-      try { await loadTeamMerged(); } catch {}
+      if (teamReport) {
+        try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+        try { await loadTeamMerged(); } catch {}
+      } else if (localReport) {
+        try { state.allReports = await api('GET', '/api/reports'); } catch {}
+        if (state.scope === 'all-reports') renderAllReportsView();
+      }
     })();
   } catch (e) {
     showToast(`코멘트 수정 오류: ${e.message}`, 'error');
@@ -5174,15 +5227,22 @@ async function removeOwnComment(owner, commentId) {
     }
     showToast('코멘트가 삭제되었습니다');
     const reportId = Number(document.getElementById('team-report-viewer-modal')?.dataset.reportId || 0);
-    const r = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
-    if (r && Array.isArray(r.comments)) {
-      r.comments = r.comments.filter((c) => Number(c.id) !== Number(commentId));
-      renderTeamCommentsList(r.comments, owner);
+    const teamReport = state.team.merged.reports.find((x) => x.id === reportId && x.owner === owner);
+    const localReport = teamReport ? null : state.allReports.find((x) => x.id === reportId);
+    const target = teamReport || localReport;
+    if (target && Array.isArray(target.comments)) {
+      target.comments = target.comments.filter((c) => Number(c.id) !== Number(commentId));
+      renderTeamCommentsList(target.comments, owner);
       if (state.scope === 'all-reports') renderAllReportsView();
     }
     (async () => {
-      try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
-      try { await loadTeamMerged(); } catch {}
+      if (teamReport) {
+        try { await fetch('/api/team/sync', { method: 'POST' }); } catch {}
+        try { await loadTeamMerged(); } catch {}
+      } else if (localReport) {
+        try { state.allReports = await api('GET', '/api/reports'); } catch {}
+        if (state.scope === 'all-reports') renderAllReportsView();
+      }
     })();
   } catch (e) {
     showToast(`코멘트 삭제 오류: ${e.message}`, 'error');

@@ -637,11 +637,29 @@ router.post('/comment-out', express.json(), async (req, res) => {
   if (typeof body !== 'string' || !body.trim()) {
     return res.status(400).json({ error: 'empty_body' });
   }
+  const cfg = settings.get();
+  // Self-loop short-circuit: comment-only viewers (외부 COMMENT_ALLOWLIST IPs)
+  // commenting on this server's own local reports — owner == self.name. Write
+  // directly to the DB instead of round-tripping through HTTP to comment-in
+  // (which would also drop the IP-based author identity).
+  if (owner.trim() === (cfg.self && cfg.self.name)) {
+    if (!reportExistsStmt.get(reportId)) {
+      return res.status(404).json({ error: 'report_not_found' });
+    }
+    const author = req.commentAuthor;
+    const info = insertCommentStmt.run(reportId, author, body.trim());
+    events.record('comment_received', {
+      author,
+      report_id: reportId,
+      bodyPreview: body.trim().slice(0, 80),
+      commentId: info.lastInsertRowid,
+    });
+    return res.json({ ok: true, id: info.lastInsertRowid, author });
+  }
   const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
   if (!target) {
     return res.status(404).json({ error: 'peer_not_found', detail: owner });
   }
-  const cfg = settings.get();
   if (!cfg.sharedToken) {
     return res.status(503).json({ error: 'team_token_not_configured' });
   }
@@ -682,9 +700,25 @@ router.post('/comment-edit-out', express.json(), async (req, res) => {
   if (typeof body !== 'string' || !body.trim()) {
     return res.status(400).json({ error: 'empty_body' });
   }
+  const cfg = settings.get();
+  // Self-loop short-circuit (same rationale as comment-out). Author check
+  // happens in SQL via "WHERE id = ? AND author = ?".
+  if (owner.trim() === (cfg.self && cfg.self.name)) {
+    const c = getCommentStmt.get(cid);
+    if (!c) return res.status(404).json({ error: 'comment_not_found' });
+    if (c.author !== req.commentAuthor) return res.status(403).json({ error: 'not_author' });
+    const info = updateCommentStmt.run(body.trim(), cid, req.commentAuthor);
+    if (info.changes === 0) return res.status(500).json({ error: 'update_failed' });
+    events.record('comment_edited', {
+      author: req.commentAuthor,
+      report_id: c.report_id,
+      commentId: cid,
+      bodyPreview: body.trim().slice(0, 80),
+    });
+    return res.json({ ok: true, id: cid });
+  }
   const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
   if (!target) return res.status(404).json({ error: 'peer_not_found', detail: owner });
-  const cfg = settings.get();
   if (!cfg.sharedToken) return res.status(503).json({ error: 'team_token_not_configured' });
   const url = `http://${target.host}:${target.port}/api/team/comment-edit-in`;
   try {
@@ -715,9 +749,22 @@ router.post('/comment-remove-out', express.json(), async (req, res) => {
   if (!Number.isInteger(cid) || cid <= 0) {
     return res.status(400).json({ error: 'invalid_comment_id' });
   }
+  const cfg = settings.get();
+  if (owner.trim() === (cfg.self && cfg.self.name)) {
+    const c = getCommentStmt.get(cid);
+    if (!c) return res.status(404).json({ error: 'comment_not_found' });
+    if (c.author !== req.commentAuthor) return res.status(403).json({ error: 'not_author' });
+    const info = deleteCommentStmt.run(cid, req.commentAuthor);
+    if (info.changes === 0) return res.status(500).json({ error: 'delete_failed' });
+    events.record('comment_removed', {
+      author: req.commentAuthor,
+      report_id: c.report_id,
+      commentId: cid,
+    });
+    return res.json({ ok: true, id: cid });
+  }
   const target = peerWatcher.getPeers().find((p) => p.name === owner.trim());
   if (!target) return res.status(404).json({ error: 'peer_not_found', detail: owner });
-  const cfg = settings.get();
   if (!cfg.sharedToken) return res.status(503).json({ error: 'team_token_not_configured' });
   const url = `http://${target.host}:${target.port}/api/team/comment-remove-in`;
   try {
