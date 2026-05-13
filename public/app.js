@@ -45,6 +45,7 @@ const els = {
   emptyState: $('#empty-state'),
   categoryView: $('#category-view'),
   catTitle: $('#cat-title'),
+  catHideToggle: $('#cat-hide-toggle'),
   catDesc: $('#cat-desc'),
   scheduleRows: $('#schedule-rows'),
   scheduleTable: $('#schedule-table'),
@@ -263,46 +264,9 @@ function renderCategories() {
     swatch.className = 'swatch';
     if (c.color) swatch.style.background = c.color;
     const name = document.createElement('span');
-    name.className = 'cat-name';
     name.textContent = c.name;
     li.append(swatch, name);
-    li.addEventListener('click', (e) => {
-      // 체크박스·라벨 클릭은 카테고리 선택과 무관 — 이벤트 무시.
-      if (e.target.closest('.hide-from-gantt-wrap')) return;
-      selectCategory(c.id);
-    });
-
-    // 「전체 간트에서 숨기기」 체크박스 + 라벨. 본인 카테고리만 편집 가능.
-    const wrap = document.createElement('span');
-    wrap.className = 'hide-from-gantt-wrap';
-    wrap.title = '체크 시 전체 간트(검색·담당자 필터 없는 상태)에서 이 카테고리가 숨겨집니다';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.className = 'hide-from-gantt-cb';
-    cb.checked = !!c.hide_from_all_gantt;
-    cb.addEventListener('click', (e) => e.stopPropagation());
-    cb.addEventListener('change', async () => {
-      cb.disabled = true;
-      try {
-        await api('PUT', `/api/categories/${c.id}`, {
-          hide_from_all_gantt: cb.checked ? 1 : 0,
-        });
-        c.hide_from_all_gantt = cb.checked ? 1 : 0;
-        // 전체 간트가 떠 있으면 즉시 재렌더.
-        if (state.scope === 'all') renderSchedules();
-      } catch (err) {
-        cb.checked = !cb.checked; // 롤백
-        showToast('숨김 설정 실패: ' + (err && err.message), 'error');
-      } finally {
-        cb.disabled = false;
-      }
-    });
-    const lbl = document.createElement('span');
-    lbl.className = 'hide-from-gantt-label';
-    lbl.textContent = '전체 간트에서 숨기기';
-    wrap.append(cb, lbl);
-    li.appendChild(wrap);
-
+    li.addEventListener('click', () => selectCategory(c.id));
     els.categoryList.appendChild(li);
   }
 
@@ -384,6 +348,7 @@ function renderCategoryView() {
   els.categoryView.classList.remove('hidden');
   els.catTitle.textContent = c.name;
   els.catDesc.textContent = c.description || '';
+  if (els.catHideToggle) els.catHideToggle.checked = !!c.hide_from_all_gantt;
   els.scheduleSectionTitle.textContent = '스케줄';
   renderSchedules();
   renderDependencies();
@@ -2337,6 +2302,25 @@ els.editCategoryBtn.addEventListener('click', () => {
   const c = state.categories.find((x) => x.id === state.selectedCategoryId);
   if (c) openCategoryModal(c);
 });
+
+// 「전체 간트에서 숨기기」 토글 — 현재 선택된 카테고리에 대해 PUT.
+if (els.catHideToggle) {
+  els.catHideToggle.addEventListener('change', async () => {
+    const c = state.categories.find((x) => x.id === state.selectedCategoryId);
+    if (!c) return;
+    const wanted = els.catHideToggle.checked ? 1 : 0;
+    els.catHideToggle.disabled = true;
+    try {
+      await api('PUT', `/api/categories/${c.id}`, { hide_from_all_gantt: wanted });
+      c.hide_from_all_gantt = wanted;
+    } catch (err) {
+      els.catHideToggle.checked = !els.catHideToggle.checked; // 롤백
+      showToast('숨김 설정 실패: ' + (err && err.message), 'error');
+    } finally {
+      els.catHideToggle.disabled = false;
+    }
+  });
+}
 els.deleteCategoryBtn.addEventListener('click', async () => {
   const c = state.categories.find((x) => x.id === state.selectedCategoryId);
   if (!c) return;
