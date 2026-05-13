@@ -443,13 +443,18 @@ function effectiveSchedules() {
   }
   const q = state.scheduleQuery.trim().toLowerCase();
   if (q) {
-    // 제목 / 카테고리명 / 담당자(팀원) 이름 중 하나라도 매치하면 노출.
-    // 본인 스케줄은 owner 가 비어 있으므로 자동으로 owner 매치는 제외됨.
+    // 제목 / 카테고리명 / 담당자 이름 중 하나라도 매치하면 노출.
+    // 본인 스케줄은 s.owner 가 비어 있어 owner 매치로는 안 잡히지만, 검색어가
+    // 본인 self.name 의 일부면 본인 스케줄을 함께 보여준다 (팀원 이름으로
+    // 검색하는 것과 대칭).
+    const selfNameLower = ((state.team.self && state.team.self.name) || '').toLowerCase();
     base = base.filter((s) => {
       if ((s.title || '').toLowerCase().includes(q)) return true;
       const cat = findCategoryForSchedule(s);
       if (cat && (cat.name || '').toLowerCase().includes(q)) return true;
       if ((s.owner || '').toLowerCase().includes(q)) return true;
+      // 본인 스케줄 (owner 빈 값) + 검색어가 self.name 안에 포함 → 매치
+      if (!s.owner && selfNameLower && selfNameLower.includes(q)) return true;
       return false;
     });
   }
