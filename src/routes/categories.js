@@ -7,10 +7,14 @@ const router = express.Router();
 const listStmt = db.prepare(`SELECT * FROM categories ORDER BY id ASC`);
 const getStmt = db.prepare(`SELECT * FROM categories WHERE id = ?`);
 const insertStmt = db.prepare(
-  `INSERT INTO categories (name, description, color, hide_from_all_gantt) VALUES (?, ?, ?, ?)`
+  `INSERT INTO categories (name, description, color, hide_from_all_gantt, updated_at)
+   VALUES (?, ?, ?, ?, datetime('now'))`
 );
 const updateStmt = db.prepare(
-  `UPDATE categories SET name = ?, description = ?, color = ?, hide_from_all_gantt = ? WHERE id = ?`
+  `UPDATE categories
+      SET name = ?, description = ?, color = ?, hide_from_all_gantt = ?,
+          updated_at = datetime('now')
+    WHERE id = ?`
 );
 const deleteStmt = db.prepare(`DELETE FROM categories WHERE id = ?`);
 const deleteDepsByCategory = db.prepare(

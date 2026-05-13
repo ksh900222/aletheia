@@ -295,6 +295,25 @@ try {
   console.error('[db] categories hide_from_all_gantt migration failed:', e.message);
 }
 
+// Migration: categories.updated_at — needed for sync fingerprint. Without it
+// hide_from_all_gantt (and other in-place edits) don't change MAX(created_at)
+// so peers' version check wouldn't detect the change.
+//
+// SQLite ALTER ADD COLUMN 은 non-constant default (datetime('now')) 를 못 받음
+// → 빈 문자열로 추가 후, 기존 row 는 created_at 값으로 backfill (= 만들어진
+// 시점을 마지막 수정 시점으로 간주). 신규 row 는 routes/categories.js 가
+// INSERT 시 datetime('now') 명시.
+try {
+  const cols = db.prepare(`PRAGMA table_info(categories)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'updated_at')) {
+    console.log('[db] migrating categories: adding updated_at column');
+    db.exec(`ALTER TABLE categories ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`);
+    db.exec(`UPDATE categories SET updated_at = created_at WHERE updated_at = ''`);
+  }
+} catch (e) {
+  console.error('[db] categories updated_at migration failed:', e.message);
+}
+
 // Sprint review tables — replicated across all team peers. Each peer's DB
 // holds: own groups (creator = '') AND cached copies of every other peer's
 // groups (creator = peer's display name). The composite PK (creator, id)

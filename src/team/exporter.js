@@ -3,7 +3,7 @@ const db = require('../db');
 function computeVersion() {
   const row = db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM categories) || '|' || COALESCE((SELECT MAX(created_at) FROM categories), '') AS c,
+      (SELECT COUNT(*) FROM categories) || '|' || COALESCE((SELECT MAX(updated_at) FROM categories), '') AS c,
       (SELECT COUNT(*) FROM schedules)  || '|' || COALESCE((SELECT MAX(updated_at) FROM schedules), '')  AS s,
       (SELECT COUNT(*) FROM dependencies) || '|' || COALESCE((SELECT MAX(created_at) FROM dependencies), '') AS d,
       (SELECT COUNT(*) FROM reports)    || '|' || COALESCE((SELECT MAX(updated_at) FROM reports), '')    AS r,
