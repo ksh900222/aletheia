@@ -263,9 +263,46 @@ function renderCategories() {
     swatch.className = 'swatch';
     if (c.color) swatch.style.background = c.color;
     const name = document.createElement('span');
+    name.className = 'cat-name';
     name.textContent = c.name;
     li.append(swatch, name);
-    li.addEventListener('click', () => selectCategory(c.id));
+    li.addEventListener('click', (e) => {
+      // 체크박스·라벨 클릭은 카테고리 선택과 무관 — 이벤트 무시.
+      if (e.target.closest('.hide-from-gantt-wrap')) return;
+      selectCategory(c.id);
+    });
+
+    // 「전체 간트에서 숨기기」 체크박스 + 라벨. 본인 카테고리만 편집 가능.
+    const wrap = document.createElement('span');
+    wrap.className = 'hide-from-gantt-wrap';
+    wrap.title = '체크 시 전체 간트(검색·담당자 필터 없는 상태)에서 이 카테고리가 숨겨집니다';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'hide-from-gantt-cb';
+    cb.checked = !!c.hide_from_all_gantt;
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', async () => {
+      cb.disabled = true;
+      try {
+        await api('PUT', `/api/categories/${c.id}`, {
+          hide_from_all_gantt: cb.checked ? 1 : 0,
+        });
+        c.hide_from_all_gantt = cb.checked ? 1 : 0;
+        // 전체 간트가 떠 있으면 즉시 재렌더.
+        if (state.scope === 'all') renderSchedules();
+      } catch (err) {
+        cb.checked = !cb.checked; // 롤백
+        showToast('숨김 설정 실패: ' + (err && err.message), 'error');
+      } finally {
+        cb.disabled = false;
+      }
+    });
+    const lbl = document.createElement('span');
+    lbl.className = 'hide-from-gantt-label';
+    lbl.textContent = '전체 간트에서 숨기기';
+    wrap.append(cb, lbl);
+    li.appendChild(wrap);
+
     els.categoryList.appendChild(li);
   }
 
@@ -419,6 +456,16 @@ function effectiveSchedules() {
       } else {
         base = base.filter((s) => s.owner === state.allOwner);
       }
+    }
+    // 「전체 간트에서 숨기기」: 검색·담당자 필터가 둘 다 없는 "모두 보기"
+    // 상태에서만 hide_from_all_gantt = 1 인 카테고리의 스케줄을 가린다.
+    // 본인 카테고리 + peer 카테고리 (snapshot 으로 받음) 모두 동일하게 적용.
+    const noFilter = !state.scheduleQuery.trim() && !state.allOwner;
+    if (noFilter) {
+      base = base.filter((s) => {
+        const cat = findCategoryForSchedule(s);
+        return !(cat && cat.hide_from_all_gantt);
+      });
     }
     baseIdSet = new Set(base.map((s) => s.id));
   } else {

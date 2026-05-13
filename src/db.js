@@ -280,6 +280,21 @@ try {
   console.error('[db] task_requests schedule_id migration failed:', e.message);
 }
 
+// Migration: categories.hide_from_all_gantt — per-category flag that hides
+// schedules of that category from 「전체 간트」 when no search/owner filter is
+// active. Useful for personal/admin categories the team doesn't need to see.
+// 0 = visible (default), 1 = hidden in default view. Synced via existing
+// snapshot mechanism so other peers respect the flag too.
+try {
+  const cols = db.prepare(`PRAGMA table_info(categories)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'hide_from_all_gantt')) {
+    console.log('[db] migrating categories: adding hide_from_all_gantt column');
+    db.exec(`ALTER TABLE categories ADD COLUMN hide_from_all_gantt INTEGER NOT NULL DEFAULT 0`);
+  }
+} catch (e) {
+  console.error('[db] categories hide_from_all_gantt migration failed:', e.message);
+}
+
 // Sprint review tables — replicated across all team peers. Each peer's DB
 // holds: own groups (creator = '') AND cached copies of every other peer's
 // groups (creator = peer's display name). The composite PK (creator, id)
