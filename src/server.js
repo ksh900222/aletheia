@@ -53,24 +53,27 @@ app.use((req, res, next) => {
   next();
 });
 
-// IP-based authorization. Two complementary allowlists:
+// IP-based authorization. 권한 계층 (높은 → 낮은):
 //
-//   WRITE_ALLOWLIST — full read+write. POST/PUT/PATCH/DELETE 가능.
-//     자기 PC 의 모든 LAN IP 는 peerWatcher.getLocalIPs() 로 자동 포함되므로
-//     보통 비워둠. 다른 PC 가 본인 인스턴스를 편집할 수 있게 하려면 그 IP 를
-//     여기에 적고 재시작.
+//   WRITE_ALLOWLIST    — 전체 쓰기 (팀원·관리자). 모든 mutating 라우트.
+//     자기 PC 의 모든 LAN IP 는 peerWatcher.getLocalIPs() 로 자동 포함.
 //
-//   READ_ALLOWLIST — 다운로드 (/uploads) + read 만 허용. 쓰기 차단.
-//     "수정은 못 하지만 자료는 받아볼 수 있어야 하는 IP" — 예: 외부 협력자,
-//     관리자 클라이언트. 등록 peer 가 아니어도 첨부파일 접근 가능.
+//   COMMENT_ALLOWLIST  — 읽기 + 다운로드 + 코멘트만. 그 외 mutation 전부 차단.
+//     "외부 협력자가 자료 보고 코멘트만 남기게 해주고 싶을 때." 코멘트는
+//     /api/team/comment-out (및 edit/remove) 만 가능.
 //
-// API GET 요청은 별도 IP 가드 없이 누구나 접근 가능 (LAN 전제). /uploads
-// 만 canRead 로 가드되며, 모든 mutating 요청은 canWrite 로 가드됨.
+//   READ_ALLOWLIST     — 다운로드 (/uploads) + read 만. 코멘트도 불가.
+//
+// 등록된 team peer 의 host 도 자동으로 read+download 권한 (canRead) 부여.
+// API GET 은 별도 가드 없이 LAN 누구나. /uploads 만 canRead 로 가드.
 const WRITE_ALLOWLIST = new Set([
   // 추가 IP 가 필요하면 여기에 적고 재시작.
 ]);
+const COMMENT_ALLOWLIST = new Set([
+  // 코멘트 + 다운로드만 허용할 IP. 예: 외부 협력자 PC.
+]);
 const READ_ALLOWLIST = new Set([
-  // 읽기 전용 다운로드 IP 가 필요하면 여기에 적고 재시작.
+  // 읽기 + 다운로드만 허용할 IP (코멘트도 불가).
 ]);
 
 function clientIp(req) {
@@ -87,10 +90,16 @@ function canWrite(req) {
   return peerWatcher.getLocalIPs().has(ip);
 }
 
-// 첨부 다운로드 권한: WRITE_ALLOWLIST(=쓰기) OR READ_ALLOWLIST(=다운로드 전용)
-// OR 등록된 team peer 만 허용. LAN 의 비-허가 PC 는 차단.
-function canRead(req) {
+// 코멘트 가능 권한: canWrite 또는 COMMENT_ALLOWLIST 에 등록된 IP.
+function canComment(req) {
   if (canWrite(req)) return true;
+  return COMMENT_ALLOWLIST.has(clientIp(req));
+}
+
+// 첨부 다운로드 권한: canWrite 또는 COMMENT_ALLOWLIST 또는 READ_ALLOWLIST
+// 또는 등록된 team peer 만 허용. LAN 의 비-허가 PC 는 차단.
+function canRead(req) {
+  if (canComment(req)) return true;
   const ip = clientIp(req);
   if (READ_ALLOWLIST.has(ip)) return true;
   return peerWatcher.getPeers().some((p) => p.host === ip);
@@ -111,6 +120,22 @@ app.get('/api/auth/me', (req, res) => {
 // row 추가·수정·삭제를 모두 잡는다 (~100 바이트 응답).
 app.get('/api/version', (req, res) => {
   res.json({ version: exporter.computeVersion() });
+});
+
+// /api/team/comment-{out,edit-out,remove-out} 가드 — 본인 UI 가 코멘트를
+// 작성·편집·삭제할 때 사용하는 라우트. 원래 team router 는 IP 가드 없이
+// 마운트되지만, 이 세 엔드포인트는 외부에서 임의로 호출 못 하게 canComment
+// 로 제한 (WRITE_ALLOWLIST + COMMENT_ALLOWLIST + 본인 LAN IP 만).
+const COMMENT_OUT_PATHS = new Set([
+  '/api/team/comment-out',
+  '/api/team/comment-edit-out',
+  '/api/team/comment-remove-out',
+]);
+app.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  if (!COMMENT_OUT_PATHS.has(req.path)) return next();
+  if (canComment(req)) return next();
+  return res.status(403).json({ error: 'forbidden_comment_from_ip', ip: clientIp(req) });
 });
 
 // Team router is mounted BEFORE the IP write-guard so cross-peer endpoints
@@ -247,6 +272,9 @@ app.listen(PORT, HOST, () => {
   console.log(`[server] write 자동 허용 (자기 PC IP): ${autoIps.join(', ')}`);
   if (WRITE_ALLOWLIST.size > 0) {
     console.log(`[server] write 추가 허용 (수동): ${Array.from(WRITE_ALLOWLIST).join(', ')}`);
+  }
+  if (COMMENT_ALLOWLIST.size > 0) {
+    console.log(`[server] comment+다운로드 허용: ${Array.from(COMMENT_ALLOWLIST).join(', ')}`);
   }
   if (READ_ALLOWLIST.size > 0) {
     console.log(`[server] read-only 허용 (다운로드만): ${Array.from(READ_ALLOWLIST).join(', ')}`);
