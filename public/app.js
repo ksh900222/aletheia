@@ -3420,6 +3420,8 @@ function reportMatchesQuery(r, q) {
   if ((r.report_date || '').includes(q)) return true;
   if ((r.categories || []).some((c) => (c.name || '').toLowerCase().includes(q))) return true;
   if ((r.schedules || []).some((s) => (s.title || '').toLowerCase().includes(q))) return true;
+  // 첨부파일 이름 (display_name) 도 검색 대상. upload·local_path 모두 포함.
+  if ((r.attachments || []).some((a) => (a.display_name || '').toLowerCase().includes(q))) return true;
   return false;
 }
 
