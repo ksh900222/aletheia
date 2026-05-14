@@ -35,6 +35,7 @@ const state = {
   allReportsBySchedule: false, // when true, group within each category by schedule first, then date
   pendingAttachments: [], // [{ kind:'upload', file, display_name } | { kind:'local_path', path, display_name }]
   reportLinkedSchedule: null, // {schedule, date} when modal was opened from a Gantt bar click
+  reportModalSnapshot: null,  // form values captured at open time — dirty check on close to confirm discard
   canWrite: true,         // IP-based authorization; flipped to false at boot if /api/auth/me says so
   canComment: true,       // COMMENT_ALLOWLIST tier — readonly except comment post/edit/delete
   clientIp: null,         // remote IP as the server saw us — shown in the read-only banner
@@ -3110,6 +3111,7 @@ function openReportModal(report) {
   // Attachments section is always visible — file uploads / local paths are
   // buffered client-side until the report is saved (POST flushes them).
   els.attachmentsSection.classList.remove('hidden');
+  state.reportModalSnapshot = snapshotReportForm();
   els.reportModal.classList.remove('hidden');
 }
 
@@ -3146,6 +3148,7 @@ async function openReportModalForDateAndSchedule(date, schedule) {
     renderAttachmentList([]);
     renderReportMetaBox(schedule, date);
     els.attachmentsSection.classList.remove('hidden');
+    state.reportModalSnapshot = snapshotReportForm();
     els.reportModal.classList.remove('hidden');
   }
 }
@@ -3178,9 +3181,41 @@ function hideReportMetaBox() {
   state.reportLinkedSchedule = null;
 }
 
-function closeReportModal() {
+// Snapshot the form fields whose changes count as "unsaved edits". Attachment
+// changes in edit mode persist immediately (POST on upload, DELETE on remove)
+// so they're not tracked here; for create mode the pendingAttachments count
+// captures buffered uploads.
+function snapshotReportForm() {
+  return {
+    body: els.reportForm.body.value,
+    report_date: els.reportForm.report_date.value,
+    categoryIds: selectedCategoryIdsFromForm().slice().sort().join(','),
+    pendingCount: state.pendingAttachments.length,
+  };
+}
+
+function isReportModalDirty() {
+  const snap = state.reportModalSnapshot;
+  if (!snap) return false;
+  const now = snapshotReportForm();
+  return (
+    now.body !== snap.body ||
+    now.report_date !== snap.report_date ||
+    now.categoryIds !== snap.categoryIds ||
+    now.pendingCount !== snap.pendingCount
+  );
+}
+
+function closeReportModal(opts) {
+  // skipDirtyCheck: callers that already persisted the edits (save submit) bypass
+  // the confirm dialog. Backdrop / 닫기 button paths leave it false → confirm fires.
+  const skip = !!(opts && opts.skipDirtyCheck);
+  if (!skip && isReportModalDirty()) {
+    if (!confirm('작성 중인 내용이 저장되지 않습니다. 정말 닫을까요?')) return;
+  }
   els.reportModal.classList.add('hidden');
   state.editingReportId = null;
+  state.reportModalSnapshot = null;
   // hideReportMetaBox already nulls state.reportLinkedSchedule, but state it
   // explicitly here too — close paths (cancel button / backdrop / save) all
   // funnel through this function and the link should never survive a close.
@@ -3280,7 +3315,7 @@ els.reportForm.addEventListener('submit', async (e) => {
           }
         }
       }
-      closeReportModal();
+      closeReportModal({ skipDirtyCheck: true });
       await refreshReportsForScope();
     } catch (err) {
       alert(`저장 실패: ${mapServerError(err)}`);
