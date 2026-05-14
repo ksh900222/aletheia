@@ -3308,34 +3308,48 @@ async function reloadEditingReport() {
 }
 
 els.attachmentFileInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  // Multi-select: <input multiple> 으로 한 번에 여러 파일 선택 가능. 서버는
+  // upload.single('file') 이라 파일마다 별개 POST 로 순차 전송 — 한 번에
+  // 모두 보내는 multipart 보다 진행도 가시성이 좋고, 부분 실패 시 어느 파일이
+  // 실패했는지 정확히 보고할 수 있다.
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+  e.target.value = '';
   if (state.editingReportId) {
-    // Existing report: upload to server immediately.
-    const fd = new FormData();
-    fd.append('file', file);
-    try {
-      const res = await fetch(
-        `/api/reports/${state.editingReportId}/attachments/upload`,
-        { method: 'POST', body: fd }
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${res.status}`);
+    const failures = [];
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch(
+          `/api/reports/${state.editingReportId}/attachments/upload`,
+          { method: 'POST', body: fd }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+      } catch (err) {
+        failures.push({ name: file.name, err });
       }
-      e.target.value = '';
-      await reloadEditingReport();
-    } catch (err) {
-      alert(`업로드 실패: ${mapServerError(err)}`);
+    }
+    await reloadEditingReport();
+    if (failures.length > 0) {
+      const successCount = files.length - failures.length;
+      const detail = failures
+        .map((f) => `  • ${f.name}: ${mapServerError(f.err)}`)
+        .join('\n');
+      alert(`${successCount}/${files.length} 업로드 완료, ${failures.length}개 실패:\n${detail}`);
     }
   } else {
     // New report (no id yet): buffer until report is saved.
-    state.pendingAttachments.push({
-      kind: 'upload',
-      file,
-      display_name: file.name,
-    });
-    e.target.value = '';
+    for (const file of files) {
+      state.pendingAttachments.push({
+        kind: 'upload',
+        file,
+        display_name: file.name,
+      });
+    }
     renderAttachmentList([]);
   }
 });
