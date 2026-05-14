@@ -3159,8 +3159,15 @@ function renderReportMetaBox(schedule, date) {
     daysBetweenInclusive(schedule.planned_start, schedule.planned_end) || 0;
   const status = schedule.status || '';
   const desc = (schedule.description || '').trim();
+  // Category pill mirrors the status pill — clickable to cycle to the next
+  // category in state.categories order (server returns id ASC). Cycle only
+  // engages when there are 2+ categories AND the user has write permission.
+  const cycleable = state.canWrite && state.categories.length > 1;
+  const catAttrs = cycleable
+    ? ` data-action="cycle-category" data-id="${schedule.id}" role="button" title="클릭하여 다음 카테고리로 변경"`
+    : '';
   const catPill = cat
-    ? `<span class="schedule-cat-pill" style="background:${cat.color || '#e7eeff'}26;color:${cat.color || '#1f5fc9'}">${escapeHtml(cat.name)}</span>`
+    ? `<span class="schedule-cat-pill"${catAttrs} style="background:${cat.color || '#e7eeff'}26;color:${cat.color || '#1f5fc9'}">${escapeHtml(cat.name)}</span>`
     : '';
   els.reportMetaBox.innerHTML = `
     <div class="meta-row"><div class="meta-label">카테고리</div><div class="meta-value">${catPill}</div></div>
@@ -3254,6 +3261,52 @@ els.reportMetaBox.addEventListener('click', async (e) => {
     renderSchedules();
   } catch (err) {
     alert(`상태 변경 실패: ${mapServerError(err)}`);
+  }
+});
+
+// Category pill inside the report meta box: cycle the schedule's category to
+// the next one in state.categories (server returns id ASC). Wraps around at
+// the end. Mirrors the status-pill cycle pattern — same undo entry shape,
+// same reload flow.
+els.reportMetaBox.addEventListener('click', async (e) => {
+  const pill = e.target.closest('.schedule-cat-pill[data-action="cycle-category"]');
+  if (!pill) return;
+  const id = Number(pill.dataset.id);
+  const sched = state.allSchedules.find((s) => s.id === id);
+  if (!sched) return;
+  const cats = state.categories;
+  if (cats.length < 2) return; // nothing to cycle to
+  const curIdx = cats.findIndex((c) => c.id === sched.category_id);
+  const next = cats[(curIdx + 1) % cats.length];
+  if (!next || next.id === sched.category_id) return;
+  try {
+    await api('PUT', `/api/schedules/${id}`, { category_id: next.id });
+    state.undoStack.push({
+      kind: 'schedule-update',
+      id,
+      before: { category_id: sched.category_id },
+      after: { category_id: next.id },
+    });
+    state.redoStack = [];
+    await loadAllSchedules();
+    if (state.selectedCategoryId) await loadSchedules(state.selectedCategoryId);
+    const updated = state.allSchedules.find((s) => s.id === id);
+    if (updated) {
+      const date = els.reportMetaBox.dataset.reportDate || '';
+      renderReportMetaBox(updated, date);
+      if (state.reportLinkedSchedule) state.reportLinkedSchedule.schedule = updated;
+      // The report's category checkboxes auto-include the schedule's category
+      // when opened from a Gantt bar. Keep them in sync so the saved report
+      // doesn't end up tagged with the previous category. Existing user-checked
+      // categories are preserved; we just swap the schedule-derived one.
+      const checked = selectedCategoryIdsFromForm();
+      const withoutOld = checked.filter((cid) => cid !== sched.category_id);
+      if (!withoutOld.includes(next.id)) withoutOld.push(next.id);
+      renderReportCategoryChecks(withoutOld);
+    }
+    renderSchedules();
+  } catch (err) {
+    alert(`카테고리 변경 실패: ${mapServerError(err)}`);
   }
 });
 
