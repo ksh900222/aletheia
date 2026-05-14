@@ -71,6 +71,7 @@ const WRITE_ALLOWLIST = new Set([
 ]);
 const COMMENT_ALLOWLIST = new Set([
     '10.115.33.155',
+    '10.115.34.204',
     '10.115.35.86',
   // 코멘트 + 다운로드만 허용할 IP. 예: 외부 협력자 PC.
 ]);
