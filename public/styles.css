@@ -1111,6 +1111,8 @@ body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
   gap: 8px;
   margin-top: 12px;
 }
+/* 스케줄 모달 — 좌측 삭제 / 우측 취소·저장 분리. */
+.modal-actions #schedule-delete-btn { margin-right: auto; }
 
 /* Read-only mode (IP not on the write allowlist). */
 .readonly-banner {

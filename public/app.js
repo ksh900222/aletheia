@@ -12,6 +12,7 @@ const state = {
   expandConnected: false, // category mode: include schedules connected via dependencies
   showArrows: false,      // overlay dependency arrows on the Gantt
   chainSort: false,       // chain-first sort: keep strong-edge chains adjacent
+  hideDone: false,        // gantt: hide schedules whose status is 'done'
   dateFocus: null,        // YYYY-MM-DD when a header date cell is clicked (sticky)
   depDraft: null,         // {scheduleId, linkType} when first bar is selected (Shift/Alt+click)
   undoStack: [],          // [{kind, ...}] — see performUndo for record shapes
@@ -87,6 +88,9 @@ const els = {
   expandConnectedBtn: $('#expand-connected-btn'),
   showArrowsBtn: $('#show-arrows-btn'),
   chainSortBtn: $('#chain-sort-btn'),
+  hideDoneToggle: $('#hide-done-toggle'),
+  scheduleDeleteBtn: $('#schedule-delete-btn'),
+  scheduleSubmitBtn: $('#schedule-submit-btn'),
   scheduleSectionTitle: $('#schedule-section-title'),
   reportSearch: $('#report-search'),
   allReportsView: $('#all-reports-view'),
@@ -1099,9 +1103,14 @@ function renderGantt() {
 
   const result = effectiveSchedules();
   const baseIdSet = result.baseIdSet;
+  // 「완료 숨김」 토글이 켜져 있으면 done 상태의 스케줄을 간트에서 제거.
+  // 리스트 뷰는 영향 없음 — done 도 기록용으로 계속 표시.
+  const filteredForGantt = state.hideDone
+    ? result.schedules.filter((s) => s.status !== 'done')
+    : result.schedules;
   // Gantt rows are reordered topologically: predecessors above successors,
   // isolated items at the bottom. Table view keeps date-based sort.
-  const visible = topoSortForGantt(result.schedules);
+  const visible = topoSortForGantt(filteredForGantt);
   if (visible.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'gantt-empty';
@@ -1714,8 +1723,32 @@ function attachBarDragHandlers(bar, schedule) {
   bar.addEventListener('pointerdown', (e) => {
     // 마우스 좌클릭만 처리 (touch / pen 도 button=0 으로 들어옴 — 기본 동작 유지).
     if (e.button !== undefined && e.button !== 0) return;
-    // Team-owned schedule: read-only. Block all drag/connect/report actions.
-    if (schedule.owner) return;
+    // Team-owned schedule: read-only. 드래그/연결/리포트 동작은 모두 차단하되,
+    // 「클릭」 (포인터 다운 → 거의 움직이지 않은 채 업) 은 읽기 전용 모달을
+    // 열어 내용을 확인할 수 있게 한다. 가로 스크롤 드래그를 모달 오픈으로
+    // 오인하지 않도록 이동거리 3px 임계값을 둔다.
+    if (schedule.owner) {
+      if (e.target.classList.contains('resize-handle')) return;
+      if (state.dateFocus) return; // 리포트 모달 흐름과 충돌 방지
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let moved = false;
+      const onMove = (ev) => {
+        if (Math.abs(ev.clientX - startX) > 3 || Math.abs(ev.clientY - startY) > 3) {
+          moved = true;
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        if (!moved) openScheduleModal(schedule, { readOnly: true });
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+      return;
+    }
     if (e.target.classList.contains('resize-handle')) return;
 
     // Sticky date-focus mode: a bar click opens the daily-report modal for
@@ -2387,10 +2420,15 @@ els.categoryForm.addEventListener('submit', async (e) => {
 });
 
 // ---------- Schedule modal ----------
-function openScheduleModal(schedule) {
-  els.scheduleModalTitle.textContent = schedule ? '스케줄 편집' : '스케줄 추가';
+function openScheduleModal(schedule, options = {}) {
+  const readOnly = !!options.readOnly;
+  const ownerLabel = schedule && schedule.owner ? ` | ${schedule.owner}` : '';
+  els.scheduleModalTitle.textContent = schedule
+    ? (readOnly ? `스케줄 (읽기 전용)${ownerLabel}` : '스케줄 편집')
+    : '스케줄 추가';
   els.scheduleForm.reset();
   els.scheduleForm.dataset.editId = schedule ? schedule.id : '';
+  els.scheduleForm.dataset.readOnly = readOnly ? '1' : '';
   // Preserve the schedule's own category_id during edit (matters in 전체 간트 /
   // 연결 포함 mode where the schedule may belong to a different category than
   // the currently selected one). For new schedules, fall back to the selected
@@ -2415,6 +2453,21 @@ function openScheduleModal(schedule) {
       els.scheduleForm.planned_start.value,
       els.scheduleForm.planned_end.value
     ) || 1;
+
+  // 읽기 전용 모드 — 모든 입력을 비활성, 저장/삭제 버튼 숨김.
+  // 본인 스케줄 편집 모드에서만 삭제 버튼 노출 (신규 추가 시 숨김).
+  const inputs = els.scheduleForm.querySelectorAll('input, textarea, select');
+  inputs.forEach((el) => { el.disabled = readOnly; });
+  if (els.scheduleSubmitBtn) {
+    els.scheduleSubmitBtn.classList.toggle('hidden', readOnly);
+  }
+  if (els.scheduleDeleteBtn) {
+    const canDelete = !readOnly && !!schedule && !schedule.owner;
+    els.scheduleDeleteBtn.classList.toggle('hidden', !canDelete);
+    els.scheduleDeleteBtn.dataset.id = canDelete ? String(schedule.id) : '';
+    els.scheduleDeleteBtn.dataset.title = canDelete ? (schedule.title || '') : '';
+  }
+
   els.scheduleModal.classList.remove('hidden');
 }
 
@@ -2446,6 +2499,22 @@ els.scheduleForm.planned_days.addEventListener('input', () => {
 });
 function closeScheduleModal() { els.scheduleModal.classList.add('hidden'); }
 
+if (els.scheduleDeleteBtn) {
+  els.scheduleDeleteBtn.addEventListener('click', async () => {
+    const id = Number(els.scheduleDeleteBtn.dataset.id);
+    if (!id) return;
+    const title = els.scheduleDeleteBtn.dataset.title || '';
+    if (!confirm(`"${title}" 스케줄을 삭제하시겠습니까?`)) return;
+    try {
+      await api('DELETE', `/api/schedules/${id}`);
+      closeScheduleModal();
+      await refreshAll();
+    } catch (err) {
+      alert(`삭제 실패: ${mapServerError(err)}`);
+    }
+  });
+}
+
 els.addScheduleBtn.addEventListener('click', () => {
   if (!state.selectedCategoryId) return;
   openScheduleModal(null);
@@ -2453,6 +2522,7 @@ els.addScheduleBtn.addEventListener('click', () => {
 
 els.scheduleForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (els.scheduleForm.dataset.readOnly === '1') return; // peer 스케줄: 저장 차단
   await withSubmitGuard(els.scheduleForm, async () => {
     const fd = new FormData(els.scheduleForm);
     const categoryId = Number(els.scheduleForm.dataset.categoryId) || null;
@@ -3519,6 +3589,17 @@ els.chainSortBtn.addEventListener('click', () => {
   els.chainSortBtn.textContent = state.chainSort ? '체인정렬 ON' : '체인정렬 OFF';
   renderSchedules();
 });
+
+// 「완료 숨김」 — 간트에서 done 항목 가림. localStorage 영구화.
+state.hideDone = localStorage.getItem('hideDone') === '1';
+if (els.hideDoneToggle) {
+  els.hideDoneToggle.checked = state.hideDone;
+  els.hideDoneToggle.addEventListener('change', () => {
+    state.hideDone = els.hideDoneToggle.checked;
+    localStorage.setItem('hideDone', state.hideDone ? '1' : '0');
+    renderSchedules();
+  });
+}
 
 els.reportSearch.addEventListener('input', (e) => {
   state.reportQuery = e.target.value || '';
