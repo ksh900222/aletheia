@@ -99,6 +99,10 @@
         <div class="section-head sub">
           <h3 id="schedule-section-title">스케줄</h3>
           <div class="schedule-toolbar">
+            <label id="hide-done-toggle-wrap" class="cat-hide-toggle" title="체크 시 간트차트에서 done 상태의 스케줄을 숨깁니다">
+              <input type="checkbox" id="hide-done-toggle" />
+              <span>완료 숨김</span>
+            </label>
             <input id="schedule-search" type="search" placeholder="제목/카테고리/담당자 검색..." />
             <label id="all-owner-wrap" class="date-filter hidden">담당자
               <select id="all-owner">
@@ -273,8 +277,9 @@
           </select>
         </label>
         <div class="modal-actions">
+          <button type="button" id="schedule-delete-btn" class="btn btn-danger hidden">삭제</button>
           <button type="button" class="btn" data-close>취소</button>
-          <button type="submit" class="btn btn-primary">저장</button>
+          <button type="submit" id="schedule-submit-btn" class="btn btn-primary">저장</button>
         </div>
       </form>
     </div>
