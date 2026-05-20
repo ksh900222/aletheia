@@ -4,12 +4,12 @@ ICS password crawler + Teams self-chat sender for Windows.
 
 Run this file from C:\\Python_scripts\\ICS with the local .venv Python:
 
-    .venv\\Scripts\\python.exe ICS_send_PW_v7.py
+    .venv\\Scripts\\python.exe ICS_send_PW_v7.py --sso-id yhchoi20 --teams-user yhchoi20@lginnotek.com
 
 Credential lookup order:
 
-1. ICS_SSO_ID/ICS_ID + ICS_SSO_PW environment variables
-2. keyring service ICS_SSO, user from --sso-id, ICS_SSO_ID, or ICS_ID
+1. ICS_SSO_ID + ICS_SSO_PW environment variables
+2. keyring service ICS_SSO, user from --sso-id or ICS_SSO_ID
 3. BMS_budget_ini.xlsx next to this script
 
 This does not use Microsoft Graph or Teams Workflows. It opens a Microsoft Teams
@@ -29,49 +29,12 @@ import urllib.parse
 from pathlib import Path
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+PORTAL_URL = "http://gportal.lginnotek.com/portal/main/portalMain.do#"
+ICS_SSO_URL = "https://ics.lginnotek.com:48011/sso/checkIcsLogin.jsp"
+ICS_COOKIE_NAME = "icsPwd"
 
-
-def load_env_files(*paths: Path) -> None:
-    """Load simple KEY=VALUE .env files without overriding real environment vars."""
-    for path in paths:
-        if not path.exists():
-            continue
-        for raw_line in path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("export "):
-                line = line[len("export "):].strip()
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if not key or key in os.environ:
-                continue
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-                value = value[1:-1]
-            os.environ[key] = value
-
-
-load_env_files(
-    SCRIPT_DIR / ".env",
-    SCRIPT_DIR / "tools" / "ics" / ".env",
-    SCRIPT_DIR / "tools" / "teams" / ".env",
-)
-
-
-PORTAL_URL = os.environ.get("ICS_PORTAL_URL", "")
-ICS_SSO_URL = os.environ.get("ICS_SSO_URL", "")
-ICS_COOKIE_NAME = os.environ.get("ICS_COOKIE_NAME", "icsPwd")
-DEFAULT_TEAMS_CHAT_DEEP_LINK_BASE = os.environ.get(
-    "TEAMS_CHAT_DEEP_LINK_BASE",
-    "https://teams.microsoft.com/l/chat/0/0?",
-)
-
-DEFAULT_CONFIG_EXCEL = os.environ.get("ICS_CONFIG_EXCEL", "BMS_budget_ini.xlsx")
-DEFAULT_KEYRING_SERVICE = os.environ.get("ICS_KEYRING_SERVICE", "ICS_SSO")
+DEFAULT_CONFIG_EXCEL = "BMS_budget_ini.xlsx"
+DEFAULT_KEYRING_SERVICE = "ICS_SSO"
 DEFAULT_MAX_URL_CHARS = 12_000
 DEFAULT_SEND_DELAY = 15.0
 DEFAULT_SEND_KEY = "auto"
@@ -90,8 +53,8 @@ def read_sso_credentials(
     sso_id: str | None,
     keyring_service: str,
 ) -> tuple[str, str]:
-    env_id = sso_id or os.environ.get("ICS_SSO_ID") or os.environ.get("ICS_ID")
-    env_pw = os.environ.get("ICS_SSO_PW") or os.environ.get("ICS_PASSWORD")
+    env_id = sso_id or os.environ.get("ICS_SSO_ID")
+    env_pw = os.environ.get("ICS_SSO_PW")
     if env_id and env_pw:
         return env_id, env_pw
 
@@ -311,9 +274,6 @@ def choose_browser(preferred: str) -> str:
 
 def crawl_ics_password(
     *,
-    portal_url: str,
-    ics_sso_url: str,
-    ics_cookie_name: str,
     sso_id: str,
     sso_pw: str,
     browser: str,
@@ -326,11 +286,6 @@ def crawl_ics_password(
     debug_dir: str | None,
 ) -> str:
     from selenium.webdriver.common.by import By
-
-    if not portal_url:
-        raise RuntimeError("Missing ICS_PORTAL_URL. Set it in .env or pass --portal-url.")
-    if not ics_sso_url:
-        raise RuntimeError("Missing ICS_SSO_URL. Set it in .env or pass --ics-sso-url.")
 
     driver = make_webdriver(browser, headless=headless, detach=keep_browser_open)
 
@@ -346,7 +301,7 @@ def crawl_ics_password(
             },
         )
 
-        driver.get(portal_url)
+        driver.get(PORTAL_URL)
         driver.implicitly_wait(3)
         wait_for_document_ready(driver, timeout=10)
 
@@ -365,9 +320,9 @@ def crawl_ics_password(
         last_error: Exception | None = None
         for attempt in range(1, ics_retries + 1):
             try:
-                driver.get(ics_sso_url)
+                driver.get(ICS_SSO_URL)
                 wait_for_document_ready(driver, timeout=10)
-                ics_cookie = fast_wait_for_cookie(driver, ics_cookie_name, timeout=cookie_timeout)
+                ics_cookie = fast_wait_for_cookie(driver, ICS_COOKIE_NAME, timeout=cookie_timeout)
                 return str(ics_cookie["value"])
             except Exception as exc:
                 last_error = exc
@@ -391,7 +346,6 @@ def build_teams_chat_deep_link(
     user: str,
     message: str | None = None,
     tenant_id: str | None = None,
-    base_url: str = DEFAULT_TEAMS_CHAT_DEEP_LINK_BASE,
 ) -> str:
     params = {"users": user}
     if message is not None:
@@ -399,8 +353,7 @@ def build_teams_chat_deep_link(
     if tenant_id:
         params["tenantId"] = tenant_id
 
-    separator = "" if base_url.endswith("?") or base_url.endswith("&") else "?"
-    return base_url + separator + urllib.parse.urlencode(params)
+    return "https://teams.microsoft.com/l/chat/0/0?" + urllib.parse.urlencode(params)
 
 
 def open_url(url: str) -> None:
@@ -868,21 +821,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config-excel", default=DEFAULT_CONFIG_EXCEL)
     parser.add_argument(
-        "--portal-url",
-        default=PORTAL_URL,
-        help="Portal login URL. Defaults to ICS_PORTAL_URL from .env.",
-    )
-    parser.add_argument(
-        "--ics-sso-url",
-        default=ICS_SSO_URL,
-        help="ICS SSO URL used to obtain the ICS cookie. Defaults to ICS_SSO_URL from .env.",
-    )
-    parser.add_argument(
-        "--ics-cookie-name",
-        default=ICS_COOKIE_NAME,
-        help="ICS password cookie name. Defaults to ICS_COOKIE_NAME or icsPwd.",
-    )
-    parser.add_argument(
         "--browser",
         choices=["auto", "edge", "chrome"],
         default=os.environ.get("ICS_BROWSER", "edge"),
@@ -956,11 +894,6 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_TEAMS_READY_TIMEOUT,
         help="Seconds to wait for Teams compose/send controls before falling back.",
     )
-    parser.add_argument(
-        "--teams-chat-base-url",
-        default=DEFAULT_TEAMS_CHAT_DEEP_LINK_BASE,
-        help="Teams chat deep-link base URL. Defaults to TEAMS_CHAT_DEEP_LINK_BASE.",
-    )
     parser.add_argument("--max-url-chars", type=int, default=DEFAULT_MAX_URL_CHARS)
     parser.add_argument(
         "--print-password",
@@ -988,9 +921,6 @@ def main() -> int:
         keyring_service=args.keyring_service,
     )
     ics_password = crawl_ics_password(
-        portal_url=args.portal_url,
-        ics_sso_url=args.ics_sso_url,
-        ics_cookie_name=args.ics_cookie_name,
         sso_id=sso_id,
         sso_pw=sso_pw,
         browser=browser,
@@ -1016,7 +946,6 @@ def main() -> int:
         user=args.teams_user,
         message=message if args.teams_input_method == "deeplink" else None,
         tenant_id=args.tenant_id,
-        base_url=args.teams_chat_base_url,
     )
 
     if len(url) > args.max_url_chars:
