@@ -4,7 +4,7 @@ ICS password crawler + Teams self-chat sender for Windows.
 
 Run this file from C:\\Python_scripts\\ICS with the local .venv Python:
 
-    .venv\\Scripts\\python.exe ICS_send_PW_v7.py --sso-id yhchoi20 --teams-user yhchoi20@lginnotek.com
+    .venv\\Scripts\\python.exe ICS_send_PW_v7.py --sso-id SSO_ID --teams-user SSO_ID@lginnotek.com
 
 Credential lookup order:
 
