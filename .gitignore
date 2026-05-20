@@ -21,8 +21,6 @@ tools/ics/auth/
 tools/ics/.env
 tools/ics/debug/
 tools/ics/docs/*
-!tools/ics/docs/ics_password_update.md
-!tools/ics/docs/ics_teams_chat_automation_report.md
 tools/ics/last_page.html
 tools/sharepoint/auth/
 tools/sharepoint/.env
@@ -31,3 +29,6 @@ tools/sharepoint/debug/
 # Python cache
 __pycache__/
 *.pyc
+
+eval_set.json
+output/
