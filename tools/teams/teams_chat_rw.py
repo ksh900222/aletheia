@@ -761,6 +761,9 @@ def make_browser_options(
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-features=LocalNetworkAccessChecks")
     options.add_argument(f"--window-size={window_size}")
+    # Bypass Teams service-worker cache so the latest messages are always fetched.
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--no-service-autorun")
 
     if headless:
         options.add_argument("--headless=new")
@@ -878,12 +881,99 @@ def wait_for_no_blocking_overlays(driver: Any, timeout: float) -> bool:
     return not get_blocking_overlays(driver)
 
 
+def clear_teams_cache(driver: Any) -> None:
+    """Clear Teams cache storage and service workers via CDP (cookies preserved)."""
+    try:
+        driver.execute_cdp_cmd(
+            "Storage.clearDataForOrigin",
+            {
+                "origin": "https://teams.microsoft.com",
+                "storageTypes": "cache_storage,service_workers",
+            },
+        )
+    except Exception:
+        pass
+    # Also unregister service workers via JS so the next navigation is truly fresh.
+    try:
+        driver.execute_script(
+            "navigator.serviceWorker.getRegistrations()"
+            ".then(regs => regs.forEach(r => r.unregister()));"
+        )
+        time.sleep(0.3)
+    except Exception:
+        pass
+
+
+def dismiss_dialog(driver: Any, timeout: float = 5.0) -> bool:
+    """Click '확인' / 'OK' / 'Dismiss' dialog buttons that block the chat view."""
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        try:
+            btn = driver.execute_script(
+                """
+                return Array.from(document.querySelectorAll('button,[role="button"]'))
+                    .find(el => {
+                        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                        return t === '확인' || t === 'ok' || t === 'dismiss' || t === 'close' || t === '닫기';
+                    }) || null;
+                """
+            )
+            if btn:
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.5)
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def click_apply_and_restart_banner(driver: Any, timeout: float = 10.0) -> bool:
+    """Click the 'Apply and restart' notification banner if present.
+
+    Teams sometimes shows a language/update banner that defers loading the latest
+    messages until the app restarts.  Clicking it forces a fresh reload.
+    """
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        try:
+            btn = driver.execute_script(
+                """
+                return Array.from(document.querySelectorAll('button,[role="button"]'))
+                    .find(el => {
+                        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+                        return t.includes('apply') && t.includes('restart');
+                    }) || null;
+                """
+            )
+            if btn:
+                driver.execute_script("arguments[0].click();", btn)
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def open_chat(driver: Any, chat_url: str, ready_timeout: float = 20.0) -> None:
     if not chat_url:
         raise ValueError("Missing Teams chat URL. Set TEAMS_CHAT_URL in .env or pass --chat-url.")
+    # Navigate to the chat URL directly (no cache clearing — it breaks Teams).
     driver.get(chat_url)
     wait_for_no_blocking_overlays(driver, ready_timeout)
-    time.sleep(0.5)
+    time.sleep(2.0)
+    # Dismiss any error/info dialogs that block the chat (e.g. "확인" popups).
+    dismiss_dialog(driver, timeout=3.0)
+    # If Teams shows an "Apply and restart" banner (language/update change),
+    # click it, wait for the app to restart, then navigate back to the chat URL.
+    if click_apply_and_restart_banner(driver, timeout=5.0):
+        wait_for_no_blocking_overlays(driver, ready_timeout)
+        time.sleep(3.0)
+        driver.get(chat_url)
+        wait_for_no_blocking_overlays(driver, ready_timeout)
+        time.sleep(2.0)
+        dismiss_dialog(driver, timeout=3.0)
+
 
 
 def get_current_user_profile(driver: Any) -> dict[str, str]:
@@ -896,8 +986,23 @@ def get_current_user_profile(driver: Any) -> dict[str, str]:
     return {str(key): str(value) for key, value in result.items() if value}
 
 
+SCROLL_TEAMS_PANE_JS = """
+(function() {
+  // Target the Teams message list viewport directly before falling back to generic scroll.
+  const pane = document.querySelector('[data-tid="message-pane-list-viewport"]');
+  if (pane) {
+    pane.scrollTop = pane.scrollHeight;
+  }
+})();
+"""
+
+
 def extract_messages(driver: Any) -> list[dict[str, Any]]:
+    driver.execute_script(SCROLL_TEAMS_PANE_JS)
+    time.sleep(0.3)
     driver.execute_script(SCROLL_CHAT_TO_BOTTOM_JS)
+    time.sleep(0.5)
+    driver.execute_script(SCROLL_TEAMS_PANE_JS)
     result = driver.execute_script(EXTRACT_CHAT_ITEMS_JS)
     if not isinstance(result, list):
         return []
