@@ -17,19 +17,37 @@ const db = require('../db');
 const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
 
 function collectOwnSnapshot() {
+  // 「팀원 공유 제외」 리포트는 본인용이므로 leaving-the-team 아카이브에도
+  // 포함하지 않는다. (runtime sync 와 동일한 정책.) 관련 자식 행도 동시 제외.
+  const reports = db.prepare(`SELECT * FROM reports`).all();
+  const sharedReports = reports.filter((r) => !r.exclude_from_team);
+  const excludedIds = new Set(
+    reports.filter((r) => r.exclude_from_team).map((r) => r.id)
+  );
+  const filterByReportId = (rows) =>
+    rows.filter((r) => !excludedIds.has(r.report_id));
+
   return {
     categories: db.prepare(`SELECT * FROM categories`).all(),
     schedules: db.prepare(`SELECT * FROM schedules`).all(),
     dependencies: db.prepare(`SELECT * FROM dependencies`).all(),
-    reports: db.prepare(`SELECT * FROM reports`).all(),
-    report_categories: db.prepare(`SELECT * FROM report_categories`).all(),
-    report_schedules: db.prepare(`SELECT * FROM report_schedules`).all(),
-    attachments: db.prepare(
-      `SELECT id, report_id, kind, path, display_name, size_bytes, created_at FROM attachments`
-    ).all(),
-    report_comments: db.prepare(
-      `SELECT id, report_id, author, body, created_at, acknowledged FROM report_comments`
-    ).all(),
+    reports: sharedReports,
+    report_categories: filterByReportId(
+      db.prepare(`SELECT * FROM report_categories`).all()
+    ),
+    report_schedules: filterByReportId(
+      db.prepare(`SELECT * FROM report_schedules`).all()
+    ),
+    attachments: filterByReportId(
+      db.prepare(
+        `SELECT id, report_id, kind, path, display_name, size_bytes, created_at FROM attachments`
+      ).all()
+    ),
+    report_comments: filterByReportId(
+      db.prepare(
+        `SELECT id, report_id, author, body, created_at, acknowledged FROM report_comments`
+      ).all()
+    ),
   };
 }
 

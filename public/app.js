@@ -50,6 +50,7 @@ const els = {
   categoryView: $('#category-view'),
   catTitle: $('#cat-title'),
   catHideToggle: $('#cat-hide-toggle'),
+  catHideToggleWrap: $('#cat-hide-toggle-wrap'),
   catDesc: $('#cat-desc'),
   scheduleRows: $('#schedule-rows'),
   scheduleTable: $('#schedule-table'),
@@ -115,6 +116,7 @@ const els = {
   attachmentsSection: $('#attachments-section'),
   attachmentList: $('#attachment-list'),
   attachmentFileInput: $('#attachment-file-input'),
+  reportExcludeFromTeam: $('#report-exclude-from-team'),
 };
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -364,6 +366,11 @@ function renderCategoryView() {
   els.catTitle.textContent = c.name;
   els.catDesc.textContent = c.description || '';
   if (els.catHideToggle) els.catHideToggle.checked = !!c.hide_from_all_gantt;
+  // 「전체 간트/리포트에서 숨기기」 토글은 팀 모드 (혹은 보관된 팀원) 가 있을
+  // 때만 의미가 있으므로 단독 사용 시엔 토글 자체를 숨긴다.
+  if (els.catHideToggleWrap) {
+    els.catHideToggleWrap.classList.toggle('hidden', !teamOn());
+  }
   els.scheduleSectionTitle.textContent = '스케줄';
   renderSchedules();
   renderDependencies();
@@ -437,10 +444,13 @@ function effectiveSchedules() {
         base = base.filter((s) => s.owner === state.allOwner);
       }
     }
-    // 「전체 간트에서 숨기기」: 검색·담당자 필터가 둘 다 없는 "모두 보기"
+    // 「전체 간트/리포트에서 숨기기」: 검색·담당자 필터가 둘 다 없는 "모두 보기"
     // 상태에서만 hide_from_all_gantt = 1 인 카테고리의 스케줄을 가린다.
     // 본인 카테고리 + peer 카테고리 (snapshot 으로 받음) 모두 동일하게 적용.
-    const noFilter = !state.scheduleQuery.trim() && !state.allOwner;
+    // 동일 플래그가 「전체 리포트」(renderAllReportsView) 의 필터에도 적용됨.
+    // 단독 사용 (팀 모드 OFF + 보관 팀원 없음) 시엔 숨김 자체가 의미 없으므로
+    // 필터를 적용하지 않는다.
+    const noFilter = !state.scheduleQuery.trim() && !state.allOwner && teamOn();
     if (noFilter) {
       base = base.filter((s) => {
         const cat = findCategoryForSchedule(s);
@@ -485,6 +495,25 @@ function findCategoryForSchedule(s) {
     );
   }
   return state.categories.find((c) => c.id === s.category_id);
+}
+
+// 「전체 간트/리포트에서 숨기기」 — 리포트가 noFilter 상태에서 숨겨져야 하는지
+// 판정. rule B: 태깅된 모든 카테고리가 hide_from_all_gantt = 1 일 때만 true.
+// 카테고리 미태깅 리포트는 false (= 노출). 본인 리포트는 state.categories,
+// peer 리포트는 state.team.merged.categories 에서 canonical 플래그를 읽는다.
+function reportFullyHidden(r) {
+  const cats = r.categories || [];
+  if (cats.length === 0) return false;
+  for (const c of cats) {
+    const canonical = r.owner
+      ? state.team.merged.categories.find((x) => x.id === c.id && x.owner === r.owner)
+      : state.categories.find((x) => x.id === c.id);
+    const hide = canonical
+      ? !!canonical.hide_from_all_gantt
+      : !!c.hide_from_all_gantt;
+    if (!hide) return false;
+  }
+  return true;
 }
 
 // Composite key uniquely identifies a schedule across own + team space. Own
@@ -2352,7 +2381,7 @@ els.editCategoryBtn.addEventListener('click', () => {
   if (c) openCategoryModal(c);
 });
 
-// 「전체 간트에서 숨기기」 토글 — 현재 선택된 카테고리에 대해 PUT.
+// 「전체 간트/리포트에서 숨기기」 토글 — 현재 선택된 카테고리에 대해 PUT.
 if (els.catHideToggle) {
   els.catHideToggle.addEventListener('change', async () => {
     const c = state.categories.find((x) => x.id === state.selectedCategoryId);
@@ -3157,6 +3186,9 @@ function openReportModal(report) {
     els.reportForm.body.value = report.body || '';
     renderReportCategoryChecks(report.categories.map((c) => c.id));
     renderAttachmentList(report.attachments);
+    if (els.reportExcludeFromTeam) {
+      els.reportExcludeFromTeam.checked = !!report.exclude_from_team;
+    }
     // If editing a report linked to schedules, show meta for the first one.
     // Multi-schedule UI is a future iteration.
     if (report.schedules && report.schedules.length) {
@@ -3170,6 +3202,7 @@ function openReportModal(report) {
     const initial = state.selectedCategoryId ? [state.selectedCategoryId] : [];
     renderReportCategoryChecks(initial);
     renderAttachmentList([]); // pending list (initially empty)
+    if (els.reportExcludeFromTeam) els.reportExcludeFromTeam.checked = false;
     hideReportMetaBox();
   }
   // Comments panel (own reports — read-only). Re-rendered automatically
@@ -3268,6 +3301,7 @@ function snapshotReportForm() {
     report_date: els.reportForm.report_date.value,
     categoryIds: selectedCategoryIdsFromForm().slice().sort().join(','),
     pendingCount: state.pendingAttachments.length,
+    excludeFromTeam: !!(els.reportExcludeFromTeam && els.reportExcludeFromTeam.checked),
   };
 }
 
@@ -3279,7 +3313,8 @@ function isReportModalDirty() {
     now.body !== snap.body ||
     now.report_date !== snap.report_date ||
     now.categoryIds !== snap.categoryIds ||
-    now.pendingCount !== snap.pendingCount
+    now.pendingCount !== snap.pendingCount ||
+    now.excludeFromTeam !== snap.excludeFromTeam
   );
 }
 
@@ -3411,6 +3446,8 @@ els.reportForm.addEventListener('submit', async (e) => {
       report_date: fd.get('report_date'),
       body: fd.get('body') || '',
       category_ids: selectedCategoryIdsFromForm(),
+      exclude_from_team:
+        els.reportExcludeFromTeam && els.reportExcludeFromTeam.checked ? 1 : 0,
     };
     // When the modal was opened from a Gantt bar click, persist the
     // (report ↔ schedule) link so the same (date, schedule) opens this
@@ -3668,17 +3705,24 @@ function renderAllReportsView() {
   const from = state.allReportsDateFrom;
   const to = state.allReportsDateTo;
   const ownerSel = state.allReportsOwner;
+  // 「전체 간트/리포트에서 숨기기」: 검색·담당자 필터가 둘 다 비어 있고 스프린트
+  // 리뷰 스코프가 아니며 팀 모드가 켜져 있을 때만, 태깅된 모든 카테고리가
+  // hide_from_all_gantt = 1 인 리포트를 가린다. 하나라도 공개 카테고리가
+  // 붙어 있으면 노출 (rule B). 카테고리 미태깅 리포트는 숨기지 않음.
+  // 단독 사용 시엔 숨김 자체가 의미 없어 필터 미적용.
+  const applyHide = !q && !ownerSel && !isSprintReviewScope && teamOn();
+  const hidePass = (r) => !applyHide || !reportFullyHidden(r);
   const ownReports = (ownerSel && ownerSel !== '__self' && ownerSel !== '')
     ? []
     : state.allReports.filter(
         (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to) &&
-               matchesActiveGroup(r)
+               matchesActiveGroup(r) && hidePass(r)
       );
   const teamReports = teamOn()
     ? state.team.merged.reports.filter(
         (r) => reportMatchesQuery(r, q) && reportInDateRange(r, from, to) &&
                (!ownerSel || ownerSel === r.owner) &&
-               matchesActiveGroup(r)
+               matchesActiveGroup(r) && hidePass(r)
       )
     : [];
   // 활성 그룹의 멤버 중 live 로 fetch 되지 않는 항목(작성자 오프라인 등)은

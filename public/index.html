@@ -87,9 +87,9 @@
             <p id="cat-desc" class="muted"></p>
           </div>
           <div class="actions cat-only">
-            <label id="cat-hide-toggle-wrap" class="cat-hide-toggle" title="체크 시 전체 간트(검색·담당자 필터 없는 상태)에서 이 카테고리가 숨겨집니다">
+            <label id="cat-hide-toggle-wrap" class="cat-hide-toggle" title="체크 시 전체 간트/리포트(검색·담당자 필터 없는 상태)에서 이 카테고리가 숨겨집니다. 리포트가 다른 카테고리에도 태깅되어 있으면 노출됨.">
               <input type="checkbox" id="cat-hide-toggle" />
-              <span>전체 간트에서 숨기기</span>
+              <span>전체 간트/리포트에서 숨기기</span>
             </label>
             <button id="edit-category-btn" class="btn">편집</button>
             <button id="delete-category-btn" class="btn btn-danger">삭제</button>
@@ -375,6 +375,10 @@
                   <input id="attachment-file-input" type="file" hidden multiple />
                 </label>
               </div>
+              <label id="report-exclude-from-team-wrap" class="report-exclude-toggle" title="체크 시 이 리포트는 다른 팀원에게 공유되지 않습니다. 작성자(본인)에게는 그대로 보입니다.">
+                <span>팀원 공유 제외</span>
+                <input id="report-exclude-from-team" type="checkbox" />
+              </label>
             </div>
 
             <div class="modal-actions">
