@@ -280,11 +280,26 @@ try {
   console.error('[db] task_requests schedule_id migration failed:', e.message);
 }
 
+// Migration: reports.exclude_from_team — per-report flag that excludes the
+// report (and its categories/schedules/attachments/comments) from the snapshot
+// served to peers. 0 = shared (default, preserves prior behavior), 1 = private
+// to the author. Toggling 1 also removes the report from this peer's own
+// sprint_group_members (handled at the route layer).
+try {
+  const cols = db.prepare(`PRAGMA table_info(reports)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'exclude_from_team')) {
+    console.log('[db] migrating reports: adding exclude_from_team column');
+    db.exec(`ALTER TABLE reports ADD COLUMN exclude_from_team INTEGER NOT NULL DEFAULT 0`);
+  }
+} catch (e) {
+  console.error('[db] reports exclude_from_team migration failed:', e.message);
+}
+
 // Migration: categories.hide_from_all_gantt — per-category flag that hides
-// schedules of that category from 「전체 간트」 when no search/owner filter is
-// active. Useful for personal/admin categories the team doesn't need to see.
-// 0 = visible (default), 1 = hidden in default view. Synced via existing
-// snapshot mechanism so other peers respect the flag too.
+// schedules of that category from 「전체 간트/리포트」 when no search/owner
+// filter is active. Useful for personal/admin categories the team doesn't need
+// to see. 0 = visible (default), 1 = hidden in default view. Synced via
+// existing snapshot mechanism so other peers respect the flag too.
 try {
   const cols = db.prepare(`PRAGMA table_info(categories)`).all();
   if (cols.length > 0 && !cols.some((c) => c.name === 'hide_from_all_gantt')) {

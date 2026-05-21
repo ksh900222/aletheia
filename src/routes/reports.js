@@ -6,11 +6,13 @@ const router = express.Router();
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const insertReport = db.prepare(
-  `INSERT INTO reports (report_date, body) VALUES (?, ?)`
+  `INSERT INTO reports (report_date, body, exclude_from_team) VALUES (?, ?, ?)`
 );
 const updateReport = db.prepare(
-  `UPDATE reports SET report_date = ?, body = ?, updated_at = datetime('now')
-   WHERE id = ?`
+  `UPDATE reports
+      SET report_date = ?, body = ?, exclude_from_team = ?,
+          updated_at = datetime('now')
+    WHERE id = ?`
 );
 const deleteReport = db.prepare(`DELETE FROM reports WHERE id = ?`);
 const getReport = db.prepare(`SELECT * FROM reports WHERE id = ?`);
@@ -142,6 +144,7 @@ router.post('/', (req, res) => {
     body = '',
     category_ids = [],
     schedule_ids = [],
+    exclude_from_team = 0,
   } = req.body || {};
   if (!ISO_DATE.test(report_date)) {
     return res.status(400).json({ error: 'invalid_date' });
@@ -154,8 +157,10 @@ router.post('/', (req, res) => {
   const sv = normalizeIdArray(schedule_ids, scheduleExists, 'schedule_ids_invalid', 'invalid_schedule_id');
   if (sv.error) return res.status(400).json({ error: sv.error, detail: sv.detail });
 
+  const excludeFlag = exclude_from_team ? 1 : 0;
+
   const id = db.transaction(() => {
-    const info = insertReport.run(report_date, body);
+    const info = insertReport.run(report_date, body, excludeFlag);
     const newId = info.lastInsertRowid;
     for (const cid of cv.ok) insertReportCategory.run(newId, cid);
     for (const sid of sv.ok) insertReportSchedule.run(newId, sid);
@@ -173,6 +178,11 @@ router.put('/:id', (req, res) => {
   const body = req.body || {};
   const newDate = body.report_date ?? existing.report_date;
   const newBody = body.body ?? existing.body;
+  const newExclude = body.exclude_from_team === undefined
+    ? (existing.exclude_from_team ? 1 : 0)
+    : (body.exclude_from_team ? 1 : 0);
+  const excludeBecameOn =
+    newExclude === 1 && (existing.exclude_from_team ? 1 : 0) === 0;
 
   if (!ISO_DATE.test(newDate)) {
     return res.status(400).json({ error: 'invalid_date' });
@@ -195,7 +205,7 @@ router.put('/:id', (req, res) => {
   }
 
   db.transaction(() => {
-    updateReport.run(newDate, newBody, id);
+    updateReport.run(newDate, newBody, newExclude, id);
     if (categoryIds !== null) {
       deleteReportCategories.run(id);
       for (const cid of categoryIds) insertReportCategory.run(id, cid);
@@ -204,11 +214,24 @@ router.put('/:id', (req, res) => {
       deleteReportSchedules.run(id);
       for (const sid of scheduleIds) insertReportSchedule.run(id, sid);
     }
-    // 본인 리포트가 수정되면, 본인이 만든 스프린트 그룹 중 이 리포트를
-    // 멤버로 가진 그룹들의 snapshot 을 새 본문으로 갱신한다. group 의
-    // updated_at 도 함께 bump 해서 다음 sync 때 peer 들에게 전파.
-    refreshOwnGroupSnapshotsForReport(id, newDate, newBody);
+    if (newExclude === 1) {
+      // 공유 제외된 리포트는 본인의 스프린트 그룹 멤버에서도 즉시 제거.
+      // peer 가 만든 그룹은 본인이 건드릴 수 없지만, exporter 가 해당 리포트
+      // 를 더 이상 내보내지 않으므로 peer 측 live 데이터에서 사라지고
+      // snapshot fallback 으로 처리된다.
+      removeReportFromOwnGroups(id);
+    } else {
+      // 본인 리포트가 수정되면, 본인이 만든 스프린트 그룹 중 이 리포트를
+      // 멤버로 가진 그룹들의 snapshot 을 새 본문으로 갱신한다. group 의
+      // updated_at 도 함께 bump 해서 다음 sync 때 peer 들에게 전파.
+      refreshOwnGroupSnapshotsForReport(id, newDate, newBody);
+    }
   })();
+
+  // 토글이 바뀌면 reports.updated_at 이 갱신되어 exporter.computeVersion()
+  // 의 fingerprint 가 바뀌므로, peer 들의 다음 polling 에서 자동으로 반영됨.
+  // 즉시 전파를 위한 별도 트리거는 불필요.
+  void excludeBecameOn;
 
   res.json(decorate(getReport.get(id)));
 });
@@ -228,6 +251,26 @@ const bumpOwnGroupsForReportStmt = db.prepare(
 function refreshOwnGroupSnapshotsForReport(reportId, newDate, newBody) {
   const info = refreshSnapshotByReportStmt.run(newDate || '', newBody || '', reportId);
   if (info.changes > 0) bumpOwnGroupsForReportStmt.run(reportId);
+}
+
+// 「팀원 공유 제외」 토글이 1 로 켜졌을 때, 본인이 만든 스프린트 그룹 (creator
+// = '') 의 멤버에서 이 리포트를 즉시 제거. 영향받은 그룹의 updated_at 도 함께
+// bump 해서 peer 들이 다음 polling 에서 그룹 멤버 변경을 인지하게 한다.
+const deleteFromOwnGroupsStmt = db.prepare(
+  `DELETE FROM sprint_group_members
+    WHERE group_creator = '' AND report_owner = '' AND report_id = ?`
+);
+const bumpOwnGroupsAffectedStmt = db.prepare(
+  `UPDATE sprint_groups SET updated_at = datetime('now')
+    WHERE creator = '' AND id IN (
+      SELECT DISTINCT group_id FROM sprint_group_members
+       WHERE group_creator = '' AND report_owner = '' AND report_id = ?
+    )`
+);
+function removeReportFromOwnGroups(reportId) {
+  // bump 먼저 (DELETE 후엔 멤버 행이 사라져 SELECT 가 0 건이 됨).
+  bumpOwnGroupsAffectedStmt.run(reportId);
+  deleteFromOwnGroupsStmt.run(reportId);
 }
 
 router.delete('/:id', (req, res) => {

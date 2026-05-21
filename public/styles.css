@@ -2401,8 +2401,8 @@ body.project-frozen .schedule-toolbar .btn:not(.view-btn) {
 }
 body.project-frozen #freeze-btn { display: none !important; }
 
-/* 「전체 간트에서 숨기기」 토글 — 카테고리 페이지 상단의 actions 영역에
-   체크박스 + 라벨로 배치. 편집·삭제 버튼과 인라인. */
+/* 「전체 간트/리포트에서 숨기기」 토글 — 카테고리 페이지 상단의 actions
+   영역에 체크박스 + 라벨로 배치. 편집·삭제 버튼과 인라인. */
 .cat-hide-toggle {
   display: inline-flex;
   align-items: center;
@@ -2414,6 +2414,32 @@ body.project-frozen #freeze-btn { display: none !important; }
   margin-right: 6px;
 }
 .cat-hide-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 「팀원 공유 제외」 토글 — 리포트 작성/편집 모달 첨부 영역 하단에 배치.
+   체크 시 본인에게만 보이고 peer 동기화에서 제외됨.
+   `.modal-card label { display: block; ... }` 의 영향을 받지 않도록
+   특이성을 높여서 inline-flex + 텍스트 정렬을 유지. */
+.modal-card label.report-exclude-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  margin: 8px 0 0;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: normal;
+  white-space: nowrap;
+}
+.modal-card label.report-exclude-toggle span {
+  white-space: nowrap;
+}
+.modal-card label.report-exclude-toggle input[type="checkbox"] {
   margin: 0;
   cursor: pointer;
 }
