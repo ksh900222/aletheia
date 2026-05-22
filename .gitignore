@@ -32,3 +32,17 @@ __pycache__/
 
 eval_set.json
 output/
+
+# Python virtualenvs
+.venv/
+
+# Generated output artifacts
+.playwright-mcp/
+*.pdf
+*.pptx
+
+# YAML configs / Playwright traces
+*.yml
+*.yaml
+
+.github/

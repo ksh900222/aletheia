@@ -1,14 +1,68 @@
-# Teams posting helpers
+# Teams helpers
 
-`post_ics_to_teams.py` runs the script configured by `ICS_POST_SCRIPT` or `--script`,
-captures stdout/stderr, and posts
-the result to a Microsoft Teams Workflows webhook.
+Three scripts live here. Use them in this order of preference:
 
-`open_ics_in_teams_chat.py` is the no-Graph, no-Workflows fallback. It uses a
-Teams chat deep link to pre-fill a chat compose box. You still review and press
-Send in Teams.
+1. `teams_chat_rw.py` — read and write any Teams chat by URL through a Selenium-driven Chrome/Edge profile. Works without Graph API, Workflows, or webhooks.
+2. `post_ics_to_teams.py` — post the ICS script output to a Teams Workflows webhook (one-way).
+3. `open_ics_in_teams_chat.py` — open Teams with a deep-link-prefilled compose box (you press Send).
 
-## Recommended Teams setup
+For Korean-language deep-dive on `teams_chat_rw.py` internals see `Teams_chat_read_write_manual_cyh.md` in this folder.
+
+## Quickstart — read/write any chat by URL (`teams_chat_rw.py`)
+
+### 1. Prerequisites
+- Chrome or Edge installed (Selenium picks one automatically).
+- Python venv with `selenium>=4.x`. The repo root `.venv` already has it:
+  ```bash
+  ls .venv/bin/python  # use this interpreter
+  ```
+- The target chat's URL. Open the chat in Teams Web, click `...` → `Copy link to chat`. It looks like `https://teams.microsoft.com/l/chat/19:<thread-id>@thread.v2/...`.
+
+### 2. Put the chat URL in `.env` (or pass `--chat-url` per call)
+```bash
+# .env (gitignored)
+TEAMS_CHAT_URL='https://teams.microsoft.com/l/chat/19:<thread-id>@thread.v2/conversations?context=...'
+```
+
+### 3. Fresh login (do this before every session — see "Stale profile" below)
+```bash
+rm -rf ~/.cache/teams-chat-rw/chrome-profile
+.venv/bin/python tools/teams/teams_chat_rw.py login --login-wait 180 --timeout 30
+# Chrome opens. Sign in with SSO + MFA. Wait window auto-closes after 180s.
+```
+
+### 4. Read the latest messages
+```bash
+# Use the URL from .env
+.venv/bin/python tools/teams/teams_chat_rw.py read --limit 5 --json
+
+# Or target a different chat without touching .env
+.venv/bin/python tools/teams/teams_chat_rw.py read \
+  --chat-url 'https://teams.microsoft.com/l/chat/19:<other-thread>@thread.v2/...' \
+  --limit 5 --json
+```
+
+### 5. Write a message
+```bash
+.venv/bin/python tools/teams/teams_chat_rw.py write \
+  --message 'Hello from teams_chat_rw'
+
+# From a file, and against an explicit chat
+.venv/bin/python tools/teams/teams_chat_rw.py write \
+  --chat-url 'https://teams.microsoft.com/l/chat/19:<thread>@thread.v2/...' \
+  --message-file ./payload.txt
+```
+
+`--no-send` types the message and stops so you can review and press Send by hand.
+
+### Stale profile (read returns yesterday's "latest")
+Symptom: `read` succeeds but the newest message you get is from hours or days ago, with no `Apply and restart` / `Accept and login` banner visible. The cached profile's auth token has gone stale; `driver.refresh()` does not fix it.
+
+Cure: redo step 3 (delete the profile dir, run `login`, redo MFA). Treat fresh login as the default — running `read`/`write` against an old profile silently lies.
+
+## Existing Workflows/deep-link helpers
+
+### Recommended Teams setup
 
 Use Teams Workflows instead of Microsoft Graph when you do not have Graph app
 permissions.
