@@ -40,26 +40,70 @@ function isSelfEntry(p) {
   return getLocalIPs().has(String(p.host));
 }
 
+// Interface name 으로 무선/유선 분류. 노트북은 보통 두 NIC 가 동시에 활성화
+// 되어 있어 (유선 + Wi-Fi), 자동 감지 시 어느 쪽을 자기 host 로 광고할지 결정
+// 해야 함. 회사·외부 출장 등에서 IP 가 더 자주 바뀌는 쪽이 무선이지만, peer
+// 들이 동일한 IP 로 접속하려면 "한 가지 기준" 이 일관되어야 함 — 사용자가
+// 모든 환경에서 들고 다니는 Wi-Fi 를 1순위로 잡는다.
+//
+// 패턴 정리 (case-insensitive):
+//  - 무선: wl* (linux: wlan/wlp/wlx/wlo), wi-fi, wifi, wireless, 무선
+//  - 유선: eth*, en* (linux: enp/eno/ens/em — note: macOS 의 en0 는 무선
+//           일 수 있어 enp/eno/ens/em 만 명시), ethernet, local area, 이더넷,
+//           로컬 영역
+//
+// macOS 는 enX 접두가 무선/유선 모두 가능해서 이름만으로 단정 못함 → unknown
+// 으로 두고 기존 10.x/192.168.x 휴리스틱에 맡긴다.
+function classifyIface(name) {
+  const n = String(name || '').toLowerCase();
+  if (/^wl/.test(n) || n.includes('wi-fi') || n.includes('wifi') ||
+      n.includes('wireless') || n.includes('무선')) {
+    return 'wireless';
+  }
+  if (/^eth/.test(n) || /^(enp|eno|ens|em)\d/.test(n) ||
+      n.includes('ethernet') || n.includes('local area') ||
+      n.includes('이더넷') || n.includes('로컬 영역')) {
+    return 'wired';
+  }
+  return 'unknown';
+}
+
 // Pick the LAN IPv4 most likely to be how other peers reach this PC. Prefers
-// 10.x / 192.168.x (typical office/home), falls back to any non-internal v4.
-// Skips link-local (169.254.x) and Docker-style 172.16-31.x on first pass.
+// wireless interfaces (laptop's Wi-Fi 가 출장·외부 등에서도 따라다니는 유일
+// 한 NIC) within 10.x / 192.168.x ranges (typical office/home). Falls back to
+// wired / unknown 순으로 점차 완화. Skips link-local (169.254.x).
 function pickPrimaryLanIp() {
   const ifaces = os.networkInterfaces();
-  const collect = (filter) => {
-    for (const name of Object.keys(ifaces)) {
-      for (const addr of ifaces[name] || []) {
-        if (!addr || addr.family !== 'IPv4' || addr.internal) continue;
-        if (addr.address.startsWith('169.254.')) continue;
-        if (filter(addr.address)) return addr.address;
-      }
+  const candidates = [];
+  for (const name of Object.keys(ifaces)) {
+    const kind = classifyIface(name);
+    for (const addr of ifaces[name] || []) {
+      if (!addr || addr.family !== 'IPv4' || addr.internal) continue;
+      if (addr.address.startsWith('169.254.')) continue;
+      const ip = addr.address;
+      const isPrivate = ip.startsWith('10.') || ip.startsWith('192.168.');
+      candidates.push({ kind, ip, isPrivate });
     }
-    return null;
-  };
-  return (
-    collect((ip) => ip.startsWith('10.') || ip.startsWith('192.168.')) ||
-    collect(() => true) ||
-    null
-  );
+  }
+  // Priority tiers (first non-empty wins, in-tier ordering preserves
+  // os.networkInterfaces() insertion):
+  //   1. wireless + private LAN  (가장 흔한 케이스: 사무실/집 Wi-Fi)
+  //   2. wireless + 그 외 v4     (드물지만 호텔·공유망 등 비표준 사설망)
+  //   3. wired   + private LAN   (유선만 연결된 데스크탑)
+  //   4. unknown + private LAN   (macOS enX 등)
+  //   5. wired/unknown 의 그 외 v4
+  const tiers = [
+    (c) => c.kind === 'wireless' && c.isPrivate,
+    (c) => c.kind === 'wireless',
+    (c) => c.kind === 'wired' && c.isPrivate,
+    (c) => c.kind === 'unknown' && c.isPrivate,
+    (c) => c.kind === 'wired' || c.kind === 'unknown',
+  ];
+  for (const test of tiers) {
+    const hit = candidates.find(test);
+    if (hit) return hit.ip;
+  }
+  return null;
 }
 
 const LEGACY_CSV_PATH = process.env.TEAM_PEERS_CSV
