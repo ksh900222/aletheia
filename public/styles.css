@@ -659,6 +659,31 @@ html, body {
    being identical gold. The crisp 4px left border carries the full-strength
    category color for at-a-glance identification. White text always reads
    well over the dark-tinted body. */
+/* 고아 리포트 점 — 이 스케줄에 연결되었지만 report_date 가 스케줄 바 영역
+   밖에 있는 리포트. 사용자가 잃어버리지 않도록 그 날짜 컬럼의 트랙 중앙에
+   카테고리 색의 작은 원으로 표시. 클릭하면 본인 리포트는 편집 모달, peer
+   리포트는 read-only 뷰어가 열림. */
+.gantt-orphan-report-dot {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--cat-color, var(--primary));
+  border: 1px solid var(--panel);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cat-color, var(--primary)) 50%, transparent);
+  cursor: pointer;
+  z-index: 2;
+  transition: transform 0.1s ease;
+}
+.gantt-orphan-report-dot:hover {
+  transform: scale(1.35);
+  z-index: 3;
+}
+.gantt-orphan-report-dot.team-readonly { cursor: pointer; opacity: 0.85; }
+
 .gantt-bar {
   position: absolute;
   top: 7px;

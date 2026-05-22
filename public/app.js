@@ -522,6 +522,27 @@ function reportFullyHidden(r) {
 function scheduleKey(s) { return `${s.owner || ''}:${s.id}`; }
 function depEndpointKey(owner, id) { return `${owner || ''}:${id}`; }
 
+// 스케줄 행에 "고아 리포트 점" 을 찍기 위한 인덱스. (scheduleKey → 연결된
+// 리포트 배열). 본인 own + peer 리포트 모두 포함. 호출자가 매 렌더마다
+// 다시 만들기엔 (보통 수십~수백 개) 비용이 가벼움.
+function buildReportsByScheduleIndex() {
+  const map = new Map();
+  const push = (owner, schedId, r) => {
+    const k = `${owner || ''}:${schedId}`;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  };
+  for (const r of state.allReports || []) {
+    for (const sch of r.schedules || []) push('', sch.id, r);
+  }
+  if (state.team && state.team.merged) {
+    for (const r of state.team.merged.reports || []) {
+      for (const sch of r.schedules || []) push(sch.owner || r.owner || '', sch.id, r);
+    }
+  }
+  return map;
+}
+
 function filteredSchedules() {
   return effectiveSchedules().schedules;
 }
@@ -1206,6 +1227,9 @@ function renderGantt() {
   const selfName = (state.team.self && state.team.self.name) || '';
   const showOwnerForOwn = state.scope === 'all' && teamOn() && !!selfName;
   const positions = new Map(); // schedule.id → {left, right, midY}
+  // 고아 리포트 (스케줄 바 영역 밖에 작성된 리포트) 를 점으로 표시하기 위한
+  // 인덱스. 한 번 계산해서 row 루프에서 lookup.
+  const reportsByScheduleIdx = buildReportsByScheduleIndex();
   for (let i = 0; i < visible.length; i++) {
     const s = visible[i];
     const row = document.createElement('div');
@@ -1302,6 +1326,47 @@ function renderGantt() {
     bar.appendChild(handle);
 
     track.appendChild(bar);
+
+    // 고아 리포트 점: 이 스케줄에 연결되었지만 report_date 가 스케줄의 새
+    // planned 기간 밖인 리포트들 — 작성 시점엔 범위 안이었지만 이후 스케줄
+    // 바가 이동해 떨어져 나간 케이스. 사용자가 잃어버리지 않게 작은 점으로
+    // 표시하고 클릭하면 해당 리포트 모달이 열림.
+    const linkedReports = reportsByScheduleIdx.get(scheduleKey(s)) || [];
+    for (const r of linkedReports) {
+      const d = r.report_date;
+      if (!d) continue;
+      // 바 범위 안이면 점 불필요 (바 클릭으로 접근 가능).
+      if (d >= s.planned_start && d <= s.planned_end) continue;
+      const dIdx = daysBetweenInclusive(startDate, d) - 1;
+      if (dIdx < 0 || dIdx >= dayCount) continue; // 간트 가시 범위 밖
+      const dot = document.createElement('div');
+      dot.className = 'gantt-orphan-report-dot';
+      if (r.owner) {
+        dot.classList.add('team-readonly');
+        dot.dataset.owner = r.owner;
+      }
+      if (cat && cat.color) dot.style.setProperty('--cat-color', cat.color);
+      dot.style.left =
+        (dIdx * GANTT_DAY_WIDTH + GANTT_DAY_WIDTH / 2) + 'px';
+      dot.dataset.reportId = String(r.id);
+      dot.dataset.reportDate = d;
+      dot.dataset.scheduleId = String(s.id);
+      const titlePreview = (r.body || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      dot.title =
+        `${d} 리포트 — 이 스케줄의 현재 기간 (${s.planned_start} ~ ${s.planned_end}) 밖에 있음\n` +
+        (titlePreview ? `"${titlePreview}${titlePreview.length === 60 ? '…' : ''}"` : '(빈 본문)');
+      dot.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (r.owner) {
+          openTeamReportViewer(r);
+        } else {
+          openReportModal(r);
+        }
+      });
+      track.appendChild(dot);
+    }
+
     row.appendChild(track);
     grid.appendChild(row);
 
@@ -3234,6 +3299,11 @@ function openReportModal(report) {
 // 다중 스케줄이면 min(planned_start) ~ max(planned_end) 의 합집합. 스케줄
 // 없으면 제약 해제. type="date" 의 min/max 속성은 브라우저 단에서 picker 와
 // validation 을 둘 다 강제함 — 서버에서도 동일 검증.
+//
+// 단, "고아" 리포트 — 현재 값 (report_date) 이 새 범위 밖에 있는 경우 — 는
+// min/max 자체를 풀어준다. 스케줄 바가 옮겨가서 리포트가 범위 밖에 남은
+// 상황을 그대로 유지하고 본문만 편집 가능하게 하기 위함. (서버도 날짜
+// 미변경 시 검증 skip — 동일 규칙.)
 function applyReportDateBounds(schedules) {
   const inp = els.reportForm && els.reportForm.report_date;
   if (!inp) return;
@@ -3247,6 +3317,14 @@ function applyReportDateBounds(schedules) {
   for (const s of schedules) {
     if (s.planned_start && (!minD || s.planned_start < minD)) minD = s.planned_start;
     if (s.planned_end && (!maxD || s.planned_end > maxD)) maxD = s.planned_end;
+  }
+  const cur = inp.value;
+  const orphaned =
+    cur && ((minD && cur < minD) || (maxD && cur > maxD));
+  if (orphaned) {
+    inp.removeAttribute('min');
+    inp.removeAttribute('max');
+    return;
   }
   if (minD) inp.setAttribute('min', minD); else inp.removeAttribute('min');
   if (maxD) inp.setAttribute('max', maxD); else inp.removeAttribute('max');
