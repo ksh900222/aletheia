@@ -117,6 +117,7 @@ const els = {
   attachmentList: $('#attachment-list'),
   attachmentFileInput: $('#attachment-file-input'),
   reportExcludeFromTeam: $('#report-exclude-from-team'),
+  reportDeleteBtn: $('#report-delete-btn'),
 };
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -934,6 +935,7 @@ const SERVER_ERROR_MESSAGES = {
   // reports
   empty_body: '내용을 입력해주세요.',
   body_too_long: '내용이 너무 깁니다.',
+  date_out_of_range: '리포트 날짜가 연결된 업무 기간을 벗어났습니다.',
   // attachments
   report_not_found: '리포트를 찾을 수 없습니다. 새로고침 후 다시 시도해주세요.',
   no_file: '파일이 첨부되지 않았습니다.',
@@ -3189,6 +3191,7 @@ function openReportModal(report) {
     if (els.reportExcludeFromTeam) {
       els.reportExcludeFromTeam.checked = !!report.exclude_from_team;
     }
+    applyReportDateBounds(report.schedules);
     // If editing a report linked to schedules, show meta for the first one.
     // Multi-schedule UI is a future iteration.
     if (report.schedules && report.schedules.length) {
@@ -3203,7 +3206,16 @@ function openReportModal(report) {
     renderReportCategoryChecks(initial);
     renderAttachmentList([]); // pending list (initially empty)
     if (els.reportExcludeFromTeam) els.reportExcludeFromTeam.checked = false;
+    applyReportDateBounds(
+      state.reportLinkedSchedule ? [state.reportLinkedSchedule.schedule] : null
+    );
     hideReportMetaBox();
+  }
+  // 편집 모드에서만 우상단 삭제 버튼 노출 (작성 모드는 아직 id 가 없으므로
+  // 닫기 버튼만으로 충분). 권한 없는 사용자는 끝까지 숨김.
+  if (els.reportDeleteBtn) {
+    const canDelete = !!report && !!state.canWrite;
+    els.reportDeleteBtn.classList.toggle('hidden', !canDelete);
   }
   // Comments panel (own reports — read-only). Re-rendered automatically
   // when a comment_received event arrives while modal is open.
@@ -3216,6 +3228,28 @@ function openReportModal(report) {
   els.attachmentsSection.classList.remove('hidden');
   state.reportModalSnapshot = snapshotReportForm();
   els.reportModal.classList.remove('hidden');
+}
+
+// 리포트 날짜 input 의 min/max 를 연결된 스케줄(들) 의 계획 기간으로 제한.
+// 다중 스케줄이면 min(planned_start) ~ max(planned_end) 의 합집합. 스케줄
+// 없으면 제약 해제. type="date" 의 min/max 속성은 브라우저 단에서 picker 와
+// validation 을 둘 다 강제함 — 서버에서도 동일 검증.
+function applyReportDateBounds(schedules) {
+  const inp = els.reportForm && els.reportForm.report_date;
+  if (!inp) return;
+  if (!schedules || !schedules.length) {
+    inp.removeAttribute('min');
+    inp.removeAttribute('max');
+    return;
+  }
+  let minD = null;
+  let maxD = null;
+  for (const s of schedules) {
+    if (s.planned_start && (!minD || s.planned_start < minD)) minD = s.planned_start;
+    if (s.planned_end && (!maxD || s.planned_end > maxD)) maxD = s.planned_end;
+  }
+  if (minD) inp.setAttribute('min', minD); else inp.removeAttribute('min');
+  if (maxD) inp.setAttribute('max', maxD); else inp.removeAttribute('max');
 }
 
 // Open the report modal for a specific (date, schedule) pair from a Gantt
@@ -3250,6 +3284,9 @@ async function openReportModalForDateAndSchedule(date, schedule) {
     renderReportCategoryChecks([schedule.category_id]);
     renderAttachmentList([]);
     renderReportMetaBox(schedule, date);
+    applyReportDateBounds([schedule]);
+    if (els.reportExcludeFromTeam) els.reportExcludeFromTeam.checked = false;
+    if (els.reportDeleteBtn) els.reportDeleteBtn.classList.add('hidden');
     els.attachmentsSection.classList.remove('hidden');
     state.reportModalSnapshot = snapshotReportForm();
     els.reportModal.classList.remove('hidden');
@@ -3333,6 +3370,30 @@ function closeReportModal(opts) {
   // funnel through this function and the link should never survive a close.
   state.reportLinkedSchedule = null;
   hideReportMetaBox();
+}
+
+// 「리포트 삭제」 우상단 버튼 — 편집 모드에서만 노출됨. 확인 후 DELETE 를
+// 발사하고 모달 닫은 뒤 리스트 갱신. reports.updated_at + sprint group
+// updated_at 변경으로 fingerprint 가 움직여 peer 들의 다음 polling 에서
+// 자동으로 사라짐.
+if (els.reportDeleteBtn) {
+  els.reportDeleteBtn.addEventListener('click', async () => {
+    const id = state.editingReportId;
+    if (!id) return;
+    if (!confirm('이 리포트를 삭제하시겠습니까?\n(첨부 파일과 스프린트 그룹 내 멤버 정보도 함께 삭제되며, 모든 팀원에게 전파됩니다.)')) {
+      return;
+    }
+    els.reportDeleteBtn.disabled = true;
+    try {
+      await api('DELETE', `/api/reports/${id}`);
+      closeReportModal({ skipDirtyCheck: true });
+      await refreshReportsForScope();
+    } catch (err) {
+      showToast('삭제 실패: ' + (err && err.message), 'error');
+    } finally {
+      els.reportDeleteBtn.disabled = false;
+    }
+  });
 }
 
 // Status pill inside the report meta box: same cycle-on-click behavior as
