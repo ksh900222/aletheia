@@ -190,6 +190,25 @@ router.put('/:id', (req, res) => {
   const bodyErr = validateBody(newBody);
   if (bodyErr) return res.status(400).json({ error: bodyErr });
 
+  // 날짜는 연결된 스케줄(들) 의 계획 기간 합집합 안에 있어야 함. 미연결
+  // 리포트(legacy) 는 제약 없음. 다중 스케줄이면 min(planned_start) ~
+  // max(planned_end). 프론트엔드 input min/max 와 동일한 규칙.
+  const linkedSchedules = getReportSchedules.all(id);
+  if (linkedSchedules.length > 0) {
+    let minStart = null;
+    let maxEnd = null;
+    for (const s of linkedSchedules) {
+      if (s.planned_start && (!minStart || s.planned_start < minStart)) minStart = s.planned_start;
+      if (s.planned_end && (!maxEnd || s.planned_end > maxEnd)) maxEnd = s.planned_end;
+    }
+    if ((minStart && newDate < minStart) || (maxEnd && newDate > maxEnd)) {
+      return res.status(400).json({
+        error: 'date_out_of_range',
+        detail: { min: minStart, max: maxEnd, given: newDate },
+      });
+    }
+  }
+
   let categoryIds = null;
   if (body.category_ids !== undefined) {
     const cv = normalizeIdArray(body.category_ids, categoryExists, 'category_ids_invalid', 'invalid_category_id');
@@ -279,6 +298,13 @@ router.delete('/:id', (req, res) => {
   const uploads = db
     .prepare(`SELECT path FROM attachments WHERE report_id = ? AND kind = 'upload'`)
     .all(id);
+  // 본인 own 스프린트 그룹의 멤버 행에서 이 리포트를 먼저 제거 (그룹의
+  // updated_at 도 bump). 이후 reports 행을 지우면 FK CASCADE 가
+  // report_categories / report_schedules / attachments / report_comments 를
+  // 정리. peer 가 만든 그룹은 본인이 건드릴 수 없지만 다음 polling 에서
+  // 우리 exporter 가 더 이상 이 리포트를 내보내지 않으므로 peer 측은 live
+  // 데이터에서 사라지고 snapshot fallback 으로 처리됨.
+  removeReportFromOwnGroups(id);
   const info = deleteReport.run(id);
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' });
   // Delegate file cleanup to attachments module to keep paths in one place.

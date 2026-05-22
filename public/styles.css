@@ -355,7 +355,16 @@ html, body {
    override these widths via cascade order. Left column = original modal
    form width (560px, fixed); right column (comments panel) takes the rest —
    widening the modal grows only the comments side. */
-.modal-card.report-modal-card { width: 1300px; max-width: 96vw; }
+.modal-card.report-modal-card { width: 1300px; max-width: 96vw; position: relative; }
+/* 리포트 편집 모달 우상단의 삭제 버튼 — 작성 모드에선 hidden 클래스로 가려짐.
+   클릭 시 확인 후 DELETE 가 발생하고 peer 동기화도 fingerprint 변경으로 전파. */
+.report-modal-delete {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 12px;
+  padding: 4px 10px;
+}
 .report-modal-grid {
   display: grid;
   grid-template-columns: 560px 1fr;
