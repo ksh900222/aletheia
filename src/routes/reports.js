@@ -193,19 +193,26 @@ router.put('/:id', (req, res) => {
   // 날짜는 연결된 스케줄(들) 의 계획 기간 합집합 안에 있어야 함. 미연결
   // 리포트(legacy) 는 제약 없음. 다중 스케줄이면 min(planned_start) ~
   // max(planned_end). 프론트엔드 input min/max 와 동일한 규칙.
-  const linkedSchedules = getReportSchedules.all(id);
-  if (linkedSchedules.length > 0) {
-    let minStart = null;
-    let maxEnd = null;
-    for (const s of linkedSchedules) {
-      if (s.planned_start && (!minStart || s.planned_start < minStart)) minStart = s.planned_start;
-      if (s.planned_end && (!maxEnd || s.planned_end > maxEnd)) maxEnd = s.planned_end;
-    }
-    if ((minStart && newDate < minStart) || (maxEnd && newDate > maxEnd)) {
-      return res.status(400).json({
-        error: 'date_out_of_range',
-        detail: { min: minStart, max: maxEnd, given: newDate },
-      });
+  //
+  // 단, 날짜를 바꾸지 않은 경우 (newDate === existing.report_date) 는 검증
+  // skip — 스케줄 바가 다른 날짜로 이동해 "고아" 가 된 리포트도 본문·
+  // 카테고리만 고치고 저장할 수 있어야 하기 때문. 사용자가 적극적으로 날짜를
+  // 옮길 때만 새 범위를 강제.
+  if (newDate !== existing.report_date) {
+    const linkedSchedules = getReportSchedules.all(id);
+    if (linkedSchedules.length > 0) {
+      let minStart = null;
+      let maxEnd = null;
+      for (const s of linkedSchedules) {
+        if (s.planned_start && (!minStart || s.planned_start < minStart)) minStart = s.planned_start;
+        if (s.planned_end && (!maxEnd || s.planned_end > maxEnd)) maxEnd = s.planned_end;
+      }
+      if ((minStart && newDate < minStart) || (maxEnd && newDate > maxEnd)) {
+        return res.status(400).json({
+          error: 'date_out_of_range',
+          detail: { min: minStart, max: maxEnd, given: newDate },
+        });
+      }
     }
   }
 
