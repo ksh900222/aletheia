@@ -46,3 +46,8 @@ output/
 *.yaml
 
 .github/
+
+# 근태(Teams Loop) 파이프라인 - 자격증명/개인정보 (git push 금지)
+EP_scheduleChecker_v5.py
+AD시스템개발_SSOID.xlsx
+근무시간_*.xlsx
