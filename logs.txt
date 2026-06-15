@@ -1,0 +1,54 @@
+C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Scripts\python.exe C:\Users\shkim4480\PycharmProjects\budget_control\EP_TEAM_ScheduleChecker_v0.py 
+[1] EP_scheduleChecker 실행 — 당일 xlsx 생성...
+ㅁㅁㅁㅁㅁㅁㅁㅁㅁㅁ 6월 8일 월요일 ㅁㅁㅁㅁㅁㅁㅁㅁㅁㅁ
+엑셀 저장 완료: 근무시간_06월_08일_확장_v5.xlsx
+      대상 xlsx: 근무시간_06월_08일_확장_v5.xlsx (22행)  헤딩: 근무시간 현황 — 2026-06-08 (월) 08:25 KST
+Traceback (most recent call last):
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\EP_TEAM_ScheduleChecker_v0.py", line 481, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\EP_TEAM_ScheduleChecker_v0.py", line 459, in main
+    driver = tc.make_webdriver(browser=tc.choose_browser("auto"), profile_dir=profile_dir,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\teams_chat_rw_loop.py", line 853, in make_webdriver
+    driver = webdriver.Chrome(options=options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\chrome\webdriver.py", line 47, in __init__
+    super().__init__(
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\chromium\webdriver.py", line 69, in __init__
+    super().__init__(command_executor=executor, options=options)
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 263, in __init__
+    self.start_session(capabilities)
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 366, in start_session
+    response = self.execute(Command.NEW_SESSION, caps)["value"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 458, in execute
+    self.error_handler.check_response(response)
+  File "C:\Users\shkim4480\PycharmProjects\budget_control\.venv\Lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 232, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.SessionNotCreatedException: Message: session not created: Chrome failed to start: crashed.
+  (session not created: DevToolsActivePort file doesn't exist)
+  (The process started from chrome location C:\Program Files\Google\Chrome\Application\chrome.exe is no longer running, so ChromeDriver is assuming that Chrome has crashed.); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#sessionnotcreatedexception
+Stacktrace:
+	chromedriver!GetHandleVerifier [0x7ff6ab6c33f5+14875]
+	chromedriver!GetHandleVerifier [0x7ff6ab6c3450+148d0]
+	chromedriver!(No symbol) [0x7ff6ab21778d]
+	chromedriver!(No symbol) [0x7ff6ab25908b]
+	chromedriver!(No symbol) [0x7ff6ab254359]
+	chromedriver!(No symbol) [0x7ff6ab2a7f11]
+	chromedriver!(No symbol) [0x7ff6ab2a7776]
+	chromedriver!(No symbol) [0x7ff6ab263eb0]
+	chromedriver!(No symbol) [0x7ff6ab264e23]
+	chromedriver!GetHandleVerifier [0x7ff6abca6c61+5f80e1]
+	chromedriver!GetHandleVerifier [0x7ff6abca0feb+5f246b]
+	chromedriver!GetHandleVerifier [0x7ff6abcc62d5+617755]
+	chromedriver!GetHandleVerifier [0x7ff6ab6e03ae+3182e]
+	chromedriver!GetHandleVerifier [0x7ff6ab6e8acc+39f4c]
+	chromedriver!GetHandleVerifier [0x7ff6ab6ccac4+1df44]
+	chromedriver!GetHandleVerifier [0x7ff6ab6ccc54+1e0d4]
+	chromedriver!GetHandleVerifier [0x7ff6ab6b0957+1dd7]
+	KERNEL32!BaseThreadInitThunk [0x7ffa26d8259d+1d]
+	ntdll!RtlUserThreadStart [0x7ffa28d8afb8+28]
+
+
+Process finished with exit code 1

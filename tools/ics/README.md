@@ -224,3 +224,4 @@ uv run python crawl_sharepoint_links.py
 
 - `auth/` 폴더는 개인 세션 토큰을 포함합니다. **절대 공유하지 마세요.** (`.gitignore` 처리됨)
 - 비밀번호는 코드나 파일에 저장하지 않고 OS Credential Manager(Windows) 또는 keyring(Linux)에만 저장합니다.
+d
