@@ -1606,6 +1606,40 @@ async function handleBarConnectionClick(schedule, linkType) {
     cancelDepDraft();
     return;
   }
+  // 같은 방향 + 같은 연결 유형이 이미 있으면 생성 대신 해제(토글).
+  const existing = state.dependencies.find(
+    (d) =>
+      d.pred_type === 'schedule' &&
+      d.pred_id === firstId &&
+      d.succ_type === 'schedule' &&
+      d.succ_id === schedule.id &&
+      d.link_type === firstLink
+  );
+  if (existing) {
+    cancelDepDraft();
+    try {
+      await api('DELETE', `/api/dependencies/${existing.id}`);
+      state.undoStack.push({
+        kind: 'dep-delete',
+        id: existing.id,
+        payload: {
+          pred_type: existing.pred_type,
+          pred_id: existing.pred_id,
+          succ_type: existing.succ_type,
+          succ_id: existing.succ_id,
+          link_type: existing.link_type,
+          on_delay: existing.on_delay,
+        },
+      });
+      state.redoStack = [];
+      await loadDependencies();
+      renderSchedules();
+      if (state.scope !== 'all') renderDependencies();
+    } catch (err) {
+      alert(`의존성 해제 실패: ${mapServerError(err)}`);
+    }
+    return;
+  }
   const payload = {
     pred_type: 'schedule',
     pred_id: firstId,
@@ -1692,6 +1726,9 @@ async function applyUndoRecord(record) {
   try {
     if (record.kind === 'dep-create') {
       await api('DELETE', `/api/dependencies/${record.id}`);
+    } else if (record.kind === 'dep-delete') {
+      const created = await api('POST', '/api/dependencies', record.payload);
+      if (created && created.id) record.id = created.id;
     } else if (record.kind === 'schedule-update') {
       await api('PUT', `/api/schedules/${record.id}`, record.before);
     } else if (record.kind === 'schedule-update-batch') {
@@ -1714,6 +1751,8 @@ async function applyRedoRecord(record) {
     if (record.kind === 'dep-create') {
       const created = await api('POST', '/api/dependencies', record.payload);
       if (created && created.id) record.id = created.id;
+    } else if (record.kind === 'dep-delete') {
+      await api('DELETE', `/api/dependencies/${record.id}`);
     } else if (record.kind === 'schedule-update') {
       await api('PUT', `/api/schedules/${record.id}`, record.after);
     } else if (record.kind === 'schedule-update-batch') {
