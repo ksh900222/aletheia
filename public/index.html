@@ -267,15 +267,25 @@
           <label>종료일<input name="planned_end" type="date" required /></label>
           <label>계획일수<input name="planned_days" type="number" min="1" step="1" /></label>
         </div>
-        <label>상태
-          <select name="status">
-            <option value="not_started">not_started</option>
-            <option value="in_progress">in_progress</option>
-            <option value="pending">pending</option>
-            <option value="blocked">blocked</option>
-            <option value="done">done</option>
-          </select>
-        </label>
+        <div class="row">
+          <label>상태
+            <select name="status">
+              <option value="not_started">not_started</option>
+              <option value="in_progress">in_progress</option>
+              <option value="pending">pending</option>
+              <option value="blocked">blocked</option>
+              <option value="done">done</option>
+            </select>
+          </label>
+          <label>우선순위
+            <select name="priority">
+              <option value="">없음</option>
+              <option value="1">1 (최우선)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+        </div>
         <div class="modal-actions">
           <button type="button" id="schedule-delete-btn" class="btn btn-danger hidden">삭제</button>
           <button type="button" class="btn" data-close>취소</button>
