@@ -240,10 +240,10 @@ try {
   console.error('[db] schedules status migration failed:', e.message);
 }
 
-// Migration: schedules.priority — 개인 우선순위 (1~3, nullable). 각 값은
-// 전체 스케줄 중 하나만 가질 수 있고(라우트 계층에서 보장), status 가
-// done 으로 바뀌면 자동 해제된다. 팀 스냅샷 export 에는 실리지만 peer
-// import 는 명시적 컬럼만 읽으므로 상대방에게는 전파되지 않는다(개인용).
+// Migration: schedules.priority — 우선순위 (1~3, nullable). 각 값은 전체
+// 스케줄 중 하나만 가질 수 있고(라우트 계층에서 보장), status 가 done 으로
+// 바뀌면 자동 해제된다. 팀 스냅샷(live)과 아카이브 import 양쪽으로 팀원
+// 화면에도 전파되어 금·은·동 링이 표시된다.
 try {
   const cols = db.prepare(`PRAGMA table_info(schedules)`).all();
   if (cols.length > 0 && !cols.some((c) => c.name === 'priority')) {
@@ -252,6 +252,18 @@ try {
   }
 } catch (e) {
   console.error('[db] schedules priority migration failed:', e.message);
+}
+
+// Migration: imported_schedules.priority — 아카이브로 보관된 팀원 스케줄도
+// 우선순위를 유지하도록 동일 컬럼 추가.
+try {
+  const cols = db.prepare(`PRAGMA table_info(imported_schedules)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === 'priority')) {
+    console.log('[db] migrating imported_schedules: adding priority column');
+    db.exec(`ALTER TABLE imported_schedules ADD COLUMN priority INTEGER`);
+  }
+} catch (e) {
+  console.error('[db] imported_schedules priority migration failed:', e.message);
 }
 
 // Migration: report_comments.acknowledged — used by the report owner to
@@ -423,6 +435,7 @@ try {
       actual_start   TEXT,
       actual_end     TEXT,
       status         TEXT NOT NULL DEFAULT 'pending',
+      priority       INTEGER,
       created_at     TEXT NOT NULL,
       updated_at     TEXT NOT NULL,
       PRIMARY KEY (owner, id)

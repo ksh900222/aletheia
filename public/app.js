@@ -1259,7 +1259,8 @@ function renderGantt() {
     // rules in CSS) so each bar visibly shows done/in_progress/blocked/etc.
     if (s.status) bar.classList.add('status-' + s.status);
     // priority-{1,2,3} drives the bar outline color (see .gantt-bar.priority-N).
-    if (s.priority && !s.owner) bar.classList.add('priority-' + s.priority);
+    // 팀원(owner 있음) 스케줄에도 표시 — 우선순위는 사람별로 각자 1~3 을 가짐.
+    if (s.priority) bar.classList.add('priority-' + s.priority);
     // Sticky date focus: highlight bars whose planned range covers the date.
     if (
       state.dateFocus &&
@@ -1287,7 +1288,7 @@ function renderGantt() {
     bar.title = planShifted
       ? `${catLabel}${s.title}${ownerForTitle}\n계획: ${s.planned_start} ~ ${s.planned_end}\n실제(엔진 조정): ${s.actual_start} ~ ${s.actual_end}`
       : `${catLabel}${s.title}${ownerForTitle}\n${s.planned_start} ~ ${s.planned_end}`;
-    if (s.priority && !s.owner) bar.title += `\n우선순위 ${s.priority}`;
+    if (s.priority) bar.title += `\n우선순위 ${s.priority}`;
     const barLabelEl = document.createElement('span');
     barLabelEl.className = 'gantt-bar-label';
     const labelOwner = s.owner || (showOwnerForOwn ? selfName : '');
