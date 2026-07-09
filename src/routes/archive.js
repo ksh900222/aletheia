@@ -102,13 +102,13 @@ async function importFromZipPath(zipPath) {
     const insSched = db.prepare(
       `INSERT INTO imported_schedules
         (owner, id, category_id, title, description, planned_start, planned_end,
-         actual_start, actual_end, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         actual_start, actual_end, status, priority, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const r of data.schedules || []) {
       insSched.run(owner, r.id, r.category_id, r.title, r.description,
         r.planned_start, r.planned_end, r.actual_start, r.actual_end,
-        r.status, r.created_at, r.updated_at);
+        r.status, r.priority ?? null, r.created_at, r.updated_at);
     }
 
     const insDep = db.prepare(
