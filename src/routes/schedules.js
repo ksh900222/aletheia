@@ -26,16 +26,24 @@ const categoryExistsStmt = db.prepare(
 const insertStmt = db.prepare(
   `INSERT INTO schedules
      (category_id, title, description, planned_start, planned_end,
-      actual_start, actual_end, status)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      actual_start, actual_end, status, priority)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 const updateStmt = db.prepare(
   `UPDATE schedules
      SET category_id = ?, title = ?, description = ?,
          planned_start = ?, planned_end = ?,
          actual_start = ?, actual_end = ?,
-         status = ?, updated_at = datetime('now')
+         status = ?, priority = ?, updated_at = datetime('now')
    WHERE id = ?`
+);
+// 우선순위 1~3 은 각각 전체에서 한 스케줄만 가질 수 있다. 새로 지정하면
+// 기존 보유 스케줄에서 회수(자동 이전). updated_at 도 갱신해 팀 스냅샷
+// 버전 지문이 바뀌도록 한다.
+const clearPriorityStmt = db.prepare(
+  `UPDATE schedules
+     SET priority = NULL, updated_at = datetime('now')
+   WHERE priority = ? AND id != ?`
 );
 const deleteStmt = db.prepare(`DELETE FROM schedules WHERE id = ?`);
 const deleteDepsBySchedule = db.prepare(
@@ -49,6 +57,14 @@ function validateDates(start, end) {
   if (!ISO_DATE.test(end)) return 'planned_end_invalid';
   if (start > end) return 'end_before_start';
   return null;
+}
+
+// priority: null(없음) 또는 1~3. 그 외 값은 invalid.
+function normalizePriority(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (n === 1 || n === 2 || n === 3) return n;
+  return 'invalid';
 }
 
 function withSlack(row) {
@@ -85,6 +101,7 @@ router.post('/', (req, res) => {
     planned_start,
     planned_end,
     status = 'pending',
+    priority = null,
   } = req.body || {};
 
   const cid = Number(category_id);
@@ -99,8 +116,14 @@ router.post('/', (req, res) => {
   if (!STATUSES.has(status)) {
     return res.status(400).json({ error: 'invalid_status' });
   }
+  let prio = normalizePriority(priority);
+  if (prio === 'invalid') {
+    return res.status(400).json({ error: 'invalid_priority' });
+  }
+  if (status === 'done') prio = null; // done 은 우선순위를 가질 수 없음
 
   const newId = db.transaction(() => {
+    if (prio !== null) clearPriorityStmt.run(prio, -1);
     const info = insertStmt.run(
       cid,
       title.trim(),
@@ -109,7 +132,8 @@ router.post('/', (req, res) => {
       planned_end,
       planned_start,
       planned_end,
-      status
+      status,
+      prio
     );
     return info.lastInsertRowid;
   })();
@@ -157,8 +181,16 @@ router.put('/:id', (req, res) => {
   if (!STATUSES.has(newStatus)) {
     return res.status(400).json({ error: 'invalid_status' });
   }
+  let newPriority = normalizePriority(
+    body.priority !== undefined ? body.priority : existing.priority
+  );
+  if (newPriority === 'invalid') {
+    return res.status(400).json({ error: 'invalid_priority' });
+  }
+  if (newStatus === 'done') newPriority = null; // done 이 되면 우선순위 해제
 
   db.transaction(() => {
+    if (newPriority !== null) clearPriorityStmt.run(newPriority, id);
     updateStmt.run(
       cid,
       newTitle.trim(),
@@ -168,6 +200,7 @@ router.put('/:id', (req, res) => {
       newActualStart,
       newActualEnd,
       newStatus,
+      newPriority,
       id
     );
   })();

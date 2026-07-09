@@ -937,6 +937,7 @@ const SERVER_ERROR_MESSAGES = {
   succ_not_found: '후행 대상을 찾을 수 없습니다.',
   current_not_found: '"현재" 대상을 찾을 수 없습니다.',
   duplicate: '동일한 의존이 이미 존재합니다.',
+  invalid_priority: '우선순위는 1~3 또는 없음이어야 합니다.',
   no_edge: '선행 또는 후행 중 하나는 선택해야 합니다.',
   invalid_current: '"현재" 입력이 올바르지 않습니다.',
   invalid_link_type: '연결 유형이 올바르지 않습니다.',
@@ -1257,6 +1258,8 @@ function renderGantt() {
     // status-{value} drives the right-edge color (see .gantt-bar .resize-handle
     // rules in CSS) so each bar visibly shows done/in_progress/blocked/etc.
     if (s.status) bar.classList.add('status-' + s.status);
+    // priority-{1,2,3} drives the bar outline color (see .gantt-bar.priority-N).
+    if (s.priority && !s.owner) bar.classList.add('priority-' + s.priority);
     // Sticky date focus: highlight bars whose planned range covers the date.
     if (
       state.dateFocus &&
@@ -1284,6 +1287,7 @@ function renderGantt() {
     bar.title = planShifted
       ? `${catLabel}${s.title}${ownerForTitle}\n계획: ${s.planned_start} ~ ${s.planned_end}\n실제(엔진 조정): ${s.actual_start} ~ ${s.actual_end}`
       : `${catLabel}${s.title}${ownerForTitle}\n${s.planned_start} ~ ${s.planned_end}`;
+    if (s.priority && !s.owner) bar.title += `\n우선순위 ${s.priority}`;
     const barLabelEl = document.createElement('span');
     barLabelEl.className = 'gantt-bar-label';
     const labelOwner = s.owner || (showOwnerForOwn ? selfName : '');
@@ -2577,6 +2581,9 @@ function openScheduleModal(schedule, options = {}) {
     els.scheduleForm.planned_start.value = schedule.planned_start;
     els.scheduleForm.planned_end.value = schedule.planned_end;
     els.scheduleForm.status.value = schedule.status;
+    els.scheduleForm.priority.value = schedule.priority
+      ? String(schedule.priority)
+      : '';
   } else {
     const today = todayIso();
     els.scheduleForm.planned_start.value = today;
@@ -2665,6 +2672,7 @@ els.scheduleForm.addEventListener('submit', async (e) => {
       alert('카테고리를 알 수 없습니다. 사이드바에서 카테고리를 선택한 뒤 다시 시도해주세요.');
       return;
     }
+    const priority = fd.get('priority') ? Number(fd.get('priority')) : null;
     const payload = {
       category_id: categoryId,
       title: fd.get('title'),
@@ -2672,8 +2680,27 @@ els.scheduleForm.addEventListener('submit', async (e) => {
       planned_start: fd.get('planned_start'),
       planned_end: fd.get('planned_end'),
       status: fd.get('status') || 'pending',
+      priority,
     };
     const editId = els.scheduleForm.dataset.editId;
+    // 우선순위 1~3 은 스케줄 하나씩만 가질 수 있다. 다른 스케줄이 이미
+    // 갖고 있으면 서버가 자동 이전하므로, 옮기기 전에 사용자에게 확인.
+    if (priority) {
+      const holder = state.allSchedules.find(
+        (s) =>
+          s.priority === priority &&
+          !s.owner &&
+          String(s.id) !== String(editId)
+      );
+      if (
+        holder &&
+        !confirm(
+          `우선순위 ${priority}은(는) 현재 "${holder.title}"에 지정되어 있습니다.\n이 스케줄로 옮길까요?`
+        )
+      ) {
+        return;
+      }
+    }
     try {
       let res;
       if (editId) {
