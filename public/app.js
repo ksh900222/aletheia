@@ -2440,6 +2440,12 @@ async function selectAllReportsView() {
   state.sprintReview.mode = false;
   state.sprintReview.selected.clear();
   state.sprintReview.originalMembers = null;
+  // 진입 시 기본 날짜 범위 = 최근 10일 (오늘−10일 ~ ). 과거 리포트가 쌓여도
+  // 최근 작업이 바로 보이도록. 「날짜 해제」 버튼으로 전체 열람 가능.
+  state.allReportsDateFrom = addDaysIso(todayIso(), -10);
+  state.allReportsDateTo = '';
+  els.allReportsDateFrom.value = state.allReportsDateFrom;
+  els.allReportsDateTo.value = '';
   renderCategories();
   await loadAllReports();
   renderCategoryView();
@@ -4327,6 +4333,12 @@ async function selectSprintReviewView() {
   state.sprintReview.mode = false;
   state.sprintReview.selected.clear();
   state.sprintReview.originalMembers = null;
+  // 전체 리포트의 기본 최근-10일 필터가 남아 스프린트 그룹 멤버를 가리지
+  // 않도록, 스프린트 리뷰 진입 시 날짜 범위는 해제.
+  state.allReportsDateFrom = '';
+  state.allReportsDateTo = '';
+  els.allReportsDateFrom.value = '';
+  els.allReportsDateTo.value = '';
   renderCategories();
   await Promise.all([loadAllReports(), loadSprintGroups()]);
   // 활성 그룹이 사라졌으면 첫 그룹으로 폴백, 처음 진입이면 첫 그룹 자동 선택
