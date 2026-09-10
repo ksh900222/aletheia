@@ -587,11 +587,39 @@ html, body {
   border: 1px solid var(--border);
   background: var(--panel);
   border-radius: var(--radius);
-  overflow-x: auto;
+  overflow-x: scroll;
   user-select: none;
   position: relative;
   box-shadow: var(--shadow-1);
+  /* Override the global slim/transparent scrollbar so the horizontal
+     track is obvious enough to grab. Firefox + WebKit. */
+  scrollbar-width: auto;
+  scrollbar-color: var(--primary) var(--panel-3);
 }
+.gantt:focus { outline: none; }
+.gantt:focus-visible {
+  box-shadow: var(--shadow-1), 0 0 0 2px var(--primary-soft);
+}
+.gantt::-webkit-scrollbar {
+  height: 16px;
+  width: 12px;
+}
+.gantt::-webkit-scrollbar-track {
+  background: var(--panel-3);
+  border-top: 1px solid var(--border-strong);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.gantt::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 8px;
+  border: 3px solid var(--panel-3);
+  background-clip: padding-box;
+}
+.gantt::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-hover);
+  background-clip: padding-box;
+}
+.gantt::-webkit-scrollbar-corner { background: var(--panel-3); }
 .gantt-empty {
   text-align: center;
   color: var(--muted);

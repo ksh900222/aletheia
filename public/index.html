@@ -116,6 +116,7 @@
               <button type="button" class="btn view-btn active" data-view="list">리스트</button>
               <button type="button" class="btn view-btn" data-view="gantt">간트</button>
             </div>
+            <button type="button" id="gantt-today-btn" class="btn hidden" title="오늘이 보이도록 가로 스크롤">오늘</button>
             <button id="add-schedule-btn" class="btn btn-primary cat-only">+ 스케줄 추가</button>
           </div>
         </div>
@@ -138,7 +139,7 @@
           <tbody id="schedule-rows"></tbody>
         </table>
 
-        <div id="schedule-gantt" class="gantt hidden"></div>
+        <div id="schedule-gantt" class="gantt hidden" tabindex="0" role="region" aria-label="스케줄 간트"></div>
 
         <div class="cat-only">
           <div class="section-head sub">
