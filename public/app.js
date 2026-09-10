@@ -90,6 +90,7 @@ const els = {
   showArrowsBtn: $('#show-arrows-btn'),
   chainSortBtn: $('#chain-sort-btn'),
   hideDoneToggle: $('#hide-done-toggle'),
+  ganttTodayBtn: $('#gantt-today-btn'),
   scheduleDeleteBtn: $('#schedule-delete-btn'),
   scheduleSubmitBtn: $('#schedule-submit-btn'),
   scheduleSectionTitle: $('#schedule-section-title'),
@@ -549,6 +550,9 @@ function filteredSchedules() {
 
 function renderSchedules() {
   // Update visibility based on viewMode.
+  if (els.ganttTodayBtn) {
+    els.ganttTodayBtn.classList.toggle('hidden', state.scheduleView !== 'gantt');
+  }
   if (state.scheduleView === 'gantt') {
     els.scheduleTable.classList.add('hidden');
     els.scheduleGantt.classList.remove('hidden');
@@ -638,6 +642,62 @@ function nextStatusOf(s) {
 
 // ---------- Gantt view ----------
 const GANTT_DAY_WIDTH = 32;
+const GANTT_PAN_DAYS = 4;        // ~128px per arrow key
+const GANTT_PAN_DAYS_LARGE = 7;  // Shift+arrow: one week
+
+// Auto-scroll to today only when entering gantt or when the filtered
+// context (category / search / owner / …) changes — never on bar
+// drag/resize or sticky-date redraws, which would yank the viewport.
+let ganttScrollToTodayPending = true;
+let ganttLastContextKey = null;
+let ganttSavedScrollLeft = 0;
+let ganttHovering = false;
+let ganttSuppressScrollSave = false;
+
+function ganttContextKey() {
+  return [
+    state.scope,
+    state.selectedCategoryId || '',
+    state.scheduleQuery || '',
+    state.hideDone ? '1' : '0',
+    state.expandConnected ? '1' : '0',
+    state.allOwner || '',
+  ].join('|');
+}
+
+function scrollGanttToToday() {
+  const container = els.scheduleGantt;
+  if (!container || container.classList.contains('hidden')) return;
+  const grid = container.querySelector('.gantt-grid');
+  if (!grid) return;
+  const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+  const line = container.querySelector('.gantt-today-line');
+  let x;
+  if (line) {
+    x = parseFloat(line.style.left);
+    if (Number.isNaN(x)) x = 0;
+  } else if (grid.dataset.todaySide === 'after') {
+    x = parseFloat(grid.style.width) || container.scrollWidth;
+  } else {
+    x = 0;
+  }
+  // Left-of-center so today sits ~35% from the left edge.
+  const target = Math.round(x - container.clientWidth * 0.35);
+  container.scrollLeft = Math.max(0, Math.min(maxScroll, target));
+  ganttSavedScrollLeft = container.scrollLeft;
+}
+
+function applyGanttHorizontalScroll(jumpToToday) {
+  const apply = () => {
+    if (jumpToToday) scrollGanttToToday();
+    else els.scheduleGantt.scrollLeft = ganttSavedScrollLeft;
+  };
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    ganttSuppressScrollSave = false;
+  });
+}
 
 // 대한민국 법정공휴일 (오프라인 fallback). 서버의 /api/holidays 가
 // 네트워크 fetch 로 최신 정보를 매일 갱신해 SERVER_HOLIDAYS 에 들어옴.
@@ -1151,6 +1211,8 @@ function clearDateFocus() {
 
 function renderGantt() {
   const container = els.scheduleGantt;
+  ganttSavedScrollLeft = container.scrollLeft;
+  ganttSuppressScrollSave = true;
   container.innerHTML = '';
   container.style.setProperty('--day-w', GANTT_DAY_WIDTH + 'px');
 
@@ -1172,6 +1234,7 @@ function renderGantt() {
         ? '스케줄이 없습니다.'
         : '검색 결과가 없습니다.';
     container.appendChild(empty);
+    ganttSuppressScrollSave = false;
     return;
   }
 
@@ -1199,6 +1262,10 @@ function renderGantt() {
   grid.className = 'gantt-grid';
   if (state.dateFocus) grid.classList.add('date-focus-active');
   grid.style.width = totalWidth + 'px';
+  const todayForRange = todayIso();
+  if (todayForRange < startDate) grid.dataset.todaySide = 'before';
+  else if (todayForRange > endDate) grid.dataset.todaySide = 'after';
+  else grid.dataset.todaySide = 'in';
 
   // Header row.
   const header = document.createElement('div');
@@ -1412,6 +1479,13 @@ function renderGantt() {
     line.style.height = visible.length * 36 + 'px';
     grid.appendChild(line);
   }
+
+  const ctxKey = ganttContextKey();
+  const jumpToToday =
+    ganttScrollToTodayPending || ctxKey !== ganttLastContextKey;
+  ganttLastContextKey = ctxKey;
+  ganttScrollToTodayPending = false;
+  applyGanttHorizontalScroll(jumpToToday);
 }
 
 // Get the category color associated with the given (type, id) endpoint —
@@ -1810,6 +1884,31 @@ document.addEventListener('keydown', (e) => {
     if (consumed) return;
   }
   if (isTypingTarget(e.target)) return;
+
+  // Gantt horizontal pan: Left/Right when the chart is hovered or focused.
+  // Shift+arrow jumps a week. Skip when a modal is open so form-adjacent
+  // keys (and ESC-mode UI) stay with the modal.
+  if (
+    (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+    !e.altKey &&
+    !e.metaKey &&
+    !e.ctrlKey
+  ) {
+    if (document.querySelector('.modal:not(.hidden)')) return;
+    if (state.scheduleView !== 'gantt') return;
+    const gantt = els.scheduleGantt;
+    if (!gantt || gantt.classList.contains('hidden')) return;
+    const active = document.activeElement;
+    const ganttActive =
+      ganttHovering || active === gantt || (active && gantt.contains(active));
+    if (!ganttActive) return;
+    e.preventDefault();
+    const days = e.shiftKey ? GANTT_PAN_DAYS_LARGE : GANTT_PAN_DAYS;
+    const step = days * GANTT_DAY_WIDTH;
+    gantt.scrollLeft += e.key === 'ArrowRight' ? step : -step;
+    ganttSavedScrollLeft = gantt.scrollLeft;
+    return;
+  }
 
   const cmd = e.metaKey || e.ctrlKey;
   if (!cmd) return;
@@ -2417,6 +2516,7 @@ function selectAllView() {
   // Entering all-view: default to a "ready-to-read" Gantt — bar view, arrows on,
   // chain sort on. Sync the toggle UI so they reflect the new state. Not
   // persisted to localStorage so per-category preferences survive reloads.
+  if (state.scheduleView !== 'gantt') ganttScrollToTodayPending = true;
   state.scheduleView = 'gantt';
   state.showArrows = true;
   state.chainSort = true;
@@ -3792,11 +3892,45 @@ els.attachmentList.addEventListener('click', async (e) => {
 // ---------- Schedule view toggle + search ----------
 els.viewBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
-    state.scheduleView = btn.dataset.view;
+    const next = btn.dataset.view;
+    if (next === 'gantt' && state.scheduleView !== 'gantt') {
+      ganttScrollToTodayPending = true;
+    }
+    state.scheduleView = next;
     els.viewBtns.forEach((b) => b.classList.toggle('active', b === btn));
     renderSchedules();
   });
 });
+
+if (els.ganttTodayBtn) {
+  els.ganttTodayBtn.addEventListener('click', () => {
+    if (state.scheduleView !== 'gantt') {
+      ganttScrollToTodayPending = true;
+      state.scheduleView = 'gantt';
+      els.viewBtns.forEach((b) => {
+        b.classList.toggle('active', b.dataset.view === 'gantt');
+      });
+      renderSchedules();
+      els.scheduleGantt.focus({ preventScroll: true });
+      return;
+    }
+    scrollGanttToToday();
+    els.scheduleGantt.focus({ preventScroll: true });
+  });
+}
+
+if (els.scheduleGantt) {
+  els.scheduleGantt.addEventListener('scroll', () => {
+    if (ganttSuppressScrollSave) return;
+    ganttSavedScrollLeft = els.scheduleGantt.scrollLeft;
+  });
+  els.scheduleGantt.addEventListener('mouseenter', () => {
+    ganttHovering = true;
+  });
+  els.scheduleGantt.addEventListener('mouseleave', () => {
+    ganttHovering = false;
+  });
+}
 
 els.scheduleSearch.addEventListener('input', (e) => {
   state.scheduleQuery = e.target.value || '';
