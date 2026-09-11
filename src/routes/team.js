@@ -27,7 +27,10 @@ function clientIp(req) {
 // 자기 PC 의 모든 네트워크 인터페이스 IP 는 peerWatcher.getLocalIPs() 로
 // 자동 허용 (실행 주체가 자기 LAN IP 로 접속해도 읽기 전용이 되지 않도록).
 // 추가로 허용할 IP 가 있으면 아래 set 에 적고 재시작.
-const WRITE_ALLOWLIST = new Set([]);
+const WRITE_ALLOWLIST = new Set([
+  '10.115.41.59',   // Thor (SH K)
+  '10.115.33.155',  // 관리 PC
+]);
 function localOnly(req, res, next) {
   const ip = clientIp(req);
   if (WRITE_ALLOWLIST.has(ip)) return next();
