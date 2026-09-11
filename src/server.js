@@ -68,9 +68,11 @@ app.use((req, res, next) => {
 // API GET 은 별도 가드 없이 LAN 누구나. /uploads 만 canRead 로 가드.
 const WRITE_ALLOWLIST = new Set([
   // 추가 IP 가 필요하면 여기에 적고 재시작.
+  '10.115.41.59',   // Thor (SH K)
+  '10.115.33.155',  // 관리 권한 복구 요청
 ]);
 const COMMENT_ALLOWLIST = new Set([
-    '10.115.33.155',
+    // '10.115.33.155' 은 WRITE_ALLOWLIST 로 승격 (canWrite ⊃ canComment)
     '10.115.34.204',
     '10.115.35.86',
   // 코멘트 + 다운로드만 허용할 IP. 예: 외부 협력자 PC.
