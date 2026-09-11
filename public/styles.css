@@ -587,12 +587,18 @@ html, body {
   border: 1px solid var(--border);
   background: var(--panel);
   border-radius: var(--radius);
+  /* Keep BOTH scrollbars on the visible panel: without a max-height the
+     gantt grows with row count and the horizontal bar sits off-screen at
+     the bottom of a very tall element (inside .content overflow-y). */
   overflow-x: scroll;
+  overflow-y: auto;
+  max-height: calc(100vh - 240px);
+  scrollbar-gutter: stable;
   user-select: none;
   position: relative;
   box-shadow: var(--shadow-1);
-  /* Override the global slim/transparent scrollbar so the horizontal
-     track is obvious enough to grab. Firefox + WebKit. */
+  /* Beat the global * { scrollbar-width: thin; track transparent } rules
+     so the horizontal bar is always a solid, grab-able track. */
   scrollbar-width: auto;
   scrollbar-color: var(--primary) var(--panel-3);
 }
@@ -600,26 +606,37 @@ html, body {
 .gantt:focus-visible {
   box-shadow: var(--shadow-1), 0 0 0 2px var(--primary-soft);
 }
+/* Higher specificity than *::-webkit-scrollbar so this always wins. */
+#schedule-gantt.gantt::-webkit-scrollbar,
 .gantt::-webkit-scrollbar {
-  height: 16px;
-  width: 12px;
-}
-.gantt::-webkit-scrollbar-track {
+  height: 18px !important;
+  width: 14px !important;
+  display: block !important;
   background: var(--panel-3);
+}
+#schedule-gantt.gantt::-webkit-scrollbar-track,
+.gantt::-webkit-scrollbar-track {
+  background: var(--panel-3) !important;
   border-top: 1px solid var(--border-strong);
   border-radius: 0 0 var(--radius) var(--radius);
+  -webkit-box-shadow: inset 0 0 0 1px var(--border);
 }
+#schedule-gantt.gantt::-webkit-scrollbar-thumb,
 .gantt::-webkit-scrollbar-thumb {
-  background: var(--primary);
+  background: var(--primary) !important;
   border-radius: 8px;
   border: 3px solid var(--panel-3);
   background-clip: padding-box;
+  min-height: 40px;
+  min-width: 40px;
 }
+#schedule-gantt.gantt::-webkit-scrollbar-thumb:hover,
 .gantt::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-hover);
+  background: var(--primary-hover) !important;
   background-clip: padding-box;
 }
-.gantt::-webkit-scrollbar-corner { background: var(--panel-3); }
+#schedule-gantt.gantt::-webkit-scrollbar-corner,
+.gantt::-webkit-scrollbar-corner { background: var(--panel-3) !important; }
 .gantt-empty {
   text-align: center;
   color: var(--muted);
