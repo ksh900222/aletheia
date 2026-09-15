@@ -65,7 +65,8 @@ app.use((req, res, next) => {
 //   READ_ALLOWLIST     — 다운로드 (/uploads) + read 만. 코멘트도 불가.
 //
 // 등록된 team peer 의 host 도 자동으로 read+download 권한 (canRead) 부여.
-// API GET 은 별도 가드 없이 LAN 누구나. /uploads 만 canRead 로 가드.
+// API GET 은 별도 가드 없이 LAN 누구나. /uploads 는 canRead 로 가드하며
+// 10.115.* 는 다운로드까지 허용한다.
 const WRITE_ALLOWLIST = new Set([
   // 추가 IP 가 필요하면 여기에 적고 재시작.
   '10.115.41.59',   // Thor (SH K)
@@ -87,6 +88,10 @@ function clientIp(req) {
   let ip = (req.socket && req.socket.remoteAddress) || '';
   if (ip.startsWith('::ffff:')) ip = ip.slice(7);
   return ip;
+}
+
+function isOfficeLan(ip) {
+  return String(ip || '').startsWith('10.115.');
 }
 
 function canWrite(req) {
@@ -123,11 +128,12 @@ app.use((req, res, next) => {
 });
 
 // 첨부 다운로드 권한: canWrite 또는 COMMENT_ALLOWLIST 또는 READ_ALLOWLIST
-// 또는 등록된 team peer 만 허용. LAN 의 비-허가 PC 는 차단.
+// 또는 10.115.* 또는 등록된 team peer. 그 외 LAN 은 차단.
 function canRead(req) {
   if (canComment(req)) return true;
   const ip = clientIp(req);
   if (READ_ALLOWLIST.has(ip)) return true;
+  if (isOfficeLan(ip)) return true;
   return peerWatcher.getPeers().some((p) => p.host === ip);
 }
 
