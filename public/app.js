@@ -3378,7 +3378,7 @@ function renderAttachmentList(savedAttachments) {
         `;
       }
     } else if (a.kind === 'upload') {
-      body = `<a class="att-name" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener">${escapeHtml(a.display_name)}</a>`;
+      body = `<a class="att-name" href="/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener">${escapeHtml(a.display_name)}</a>`;
     } else {
       const fileHref = toFileHref(a.path);
       body = `
@@ -4177,7 +4177,7 @@ function renderAllReportsView() {
         const base = (a.peerHost && a.peerPort)
           ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}`
           : '';
-        return `<a class="att-chip" href="${base}/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+        return `<a class="att-chip" href="${base}/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
       }
       // local_path: only reachable when it's our own. Team peer's local
       // filesystem isn't accessible from here — render as non-clickable hint.
@@ -4805,6 +4805,7 @@ function openTeamReportViewer(r) {
       const link = document.createElement('a');
       link.className = 'att-chip';
       link.href = href;
+      link.download = a.display_name;
       link.target = '_blank';
       link.rel = 'noopener';
       link.title = a.display_name;
@@ -6757,7 +6758,7 @@ async function loadAndRenderOutbound() {
     const attachmentsHtml = (g.attachments || [])
       .map((a) => {
         if (a.kind === 'upload') {
-          return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+          return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
         }
         return `<span class="att-chip" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</span>`;
       }).join('');
@@ -6882,6 +6883,7 @@ function openTaskOutboundDetail(group) {
       const link = document.createElement('a');
       link.className = 'att-chip';
       link.href = `/uploads/${encodeURIComponent(a.path)}`;
+      link.download = a.display_name;
       link.target = '_blank';
       link.rel = 'noopener';
       link.title = a.display_name;
@@ -7348,6 +7350,7 @@ async function openTaskDetail(reqId) {
       const link = document.createElement('a');
       link.className = 'att-chip';
       link.href = href;
+      link.download = a.display_name;
       link.target = '_blank';
       link.rel = 'noopener';
       link.title = a.display_name;

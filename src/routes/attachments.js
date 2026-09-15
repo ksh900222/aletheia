@@ -118,6 +118,77 @@ router.delete('/attachments/:id', (req, res) => {
   res.status(204).end();
 });
 
+const findAttachmentName = db.prepare(
+  `SELECT display_name FROM attachments WHERE kind = 'upload' AND path = ?`
+);
+const findTaskAttachmentName = db.prepare(
+  `SELECT display_name FROM task_request_attachments WHERE kind = 'upload' AND path = ?`
+);
+let findImportedAttachmentName = null;
+try {
+  findImportedAttachmentName = db.prepare(
+    `SELECT display_name FROM imported_attachments WHERE kind = 'upload' AND path = ?`
+  );
+} catch {
+  findImportedAttachmentName = null;
+}
+
+function lookupDisplayName(storedPath) {
+  const row =
+    findAttachmentName.get(storedPath) ||
+    findTaskAttachmentName.get(storedPath) ||
+    (findImportedAttachmentName && findImportedAttachmentName.get(storedPath));
+  return row && row.display_name ? String(row.display_name) : '';
+}
+
+function contentDispositionHeader(name) {
+  const raw = String(name || 'download')
+    .replace(/[\r\n\0]/g, '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    .slice(0, 200);
+  const fallback =
+    raw.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_') || 'download';
+  const encoded = encodeURIComponent(raw).replace(/[!'()*]/g, (c) =>
+    '%' + c.charCodeAt(0).toString(16).toUpperCase()
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+function resolveUploadFile(urlPath) {
+  let rel;
+  try {
+    rel = decodeURIComponent(String(urlPath || ''));
+  } catch {
+    return null;
+  }
+  rel = rel.replace(/^\/+/, '');
+  if (!rel || rel.includes('\0')) return null;
+  const root = path.resolve(UPLOAD_DIR);
+  const full = path.resolve(root, rel);
+  if (full !== root && !full.startsWith(root + path.sep)) return null;
+  return {
+    rel: path.relative(root, full).split(path.sep).join('/'),
+    full,
+  };
+}
+
+function serveUploads(req, res, next) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const resolved = resolveUploadFile(req.path);
+  if (!resolved) return res.status(400).json({ error: 'bad_filename' });
+  fs.stat(resolved.full, (err, st) => {
+    if (err || !st.isFile()) return res.status(404).end();
+    const display = lookupDisplayName(resolved.rel) || path.basename(resolved.rel);
+    res.setHeader('Content-Disposition', contentDispositionHeader(display));
+    res.sendFile(resolved.full, (sendErr) => {
+      if (sendErr && !res.headersSent) next(sendErr);
+    });
+  });
+}
+
 module.exports = router;
 module.exports.UPLOAD_DIR = UPLOAD_DIR;
 module.exports.cleanupUploadedFiles = cleanupUploadedFiles;
+module.exports.serveUploads = serveUploads;

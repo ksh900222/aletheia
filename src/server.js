@@ -248,12 +248,13 @@ app.get('/api/health', (req, res) => {
 
 // Serve uploaded attachments at /uploads/<filename>. Restricted to local
 // machine + registered team peers (canRead) — non-program LAN hosts denied.
+// Content-Disposition uses DB display_name so Save As matches the UI name.
 app.use('/uploads', (req, res, next) => {
   if (!canRead(req)) {
     return res.status(403).json({ error: 'forbidden_read_from_ip', ip: clientIp(req) });
   }
   next();
-}, express.static(attachmentsRouter.UPLOAD_DIR));
+}, attachmentsRouter.serveUploads);
 
 app.use(express.static(path.resolve(__dirname, '..', 'public')));
 
