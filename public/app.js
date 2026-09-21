@@ -1814,6 +1814,8 @@ async function applyUndoRecord(record) {
       for (const it of record.items) {
         await api('PUT', `/api/schedules/${it.id}`, it.before);
       }
+    } else if (record.kind === 'schedule-create') {
+      await api('DELETE', `/api/schedules/${record.id}`);
     } else {
       return false;
     }
@@ -1837,6 +1839,11 @@ async function applyRedoRecord(record) {
     } else if (record.kind === 'schedule-update-batch') {
       for (const it of record.items) {
         await api('PUT', `/api/schedules/${it.id}`, it.after);
+      }
+    } else if (record.kind === 'schedule-create') {
+      const created = await api('POST', '/api/schedules', record.payload);
+      if (created && created.schedule && created.schedule.id) {
+        record.id = created.schedule.id;
       }
     } else {
       return false;
@@ -1862,7 +1869,18 @@ async function performRedo() {
   await refreshAfterHistoryAction();
 }
 
+// Ctrl/Cmd+Shift held over the gantt means the next bar drag copies.
+function syncGanttCopyCursor(e) {
+  const copy =
+    !!e &&
+    (e.ctrlKey || e.metaKey) &&
+    e.shiftKey &&
+    !isTypingTarget(e.target);
+  document.body.classList.toggle('gantt-mod-copy', copy);
+}
+
 document.addEventListener('keydown', (e) => {
+  syncGanttCopyCursor(e);
   // ESC clears any active "modes" (dep-draft and/or sticky date focus) in
   // one keystroke. Both can be live at the same time (e.g. user starts a
   // dep draft, then clicks a date header) and a single ESC should reset
@@ -1933,6 +1951,97 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 });
+document.addEventListener('keyup', syncGanttCopyCursor);
+window.addEventListener('blur', () => {
+  document.body.classList.remove('gantt-mod-copy');
+});
+
+// Ctrl/Cmd+Shift+drag copies the bar onto the dropped dates. The original
+// stays put. Links, reports, and priority are not copied — priority is
+// unique (1~3), and links are a separate gesture.
+function startScheduleCopyDrag(bar, schedule, e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const origLeft = parseFloat(bar.style.left);
+  const track = bar.parentElement;
+  const ghost = bar.cloneNode(true);
+  ghost.classList.add('copy-ghost');
+  ghost.classList.remove(
+    'dep-draft-first',
+    'date-focus-hit',
+    'shifted',
+    'dragging',
+    'group-extra',
+    'priority-1',
+    'priority-2',
+    'priority-3'
+  );
+  ghost.querySelectorAll('.resize-handle').forEach((h) => h.remove());
+  ghost.style.left = origLeft + 'px';
+  if (track) track.appendChild(ghost);
+  bar.classList.add('copy-source');
+  document.body.classList.add('gantt-copy-drag');
+  let moved = false;
+
+  function onMove(ev) {
+    const dx = ev.clientX - startX;
+    if (Math.abs(dx) > 3) moved = true;
+    const snapped = Math.round(dx / GANTT_DAY_WIDTH) * GANTT_DAY_WIDTH;
+    ghost.style.left = origLeft + snapped + 'px';
+  }
+  async function onUp() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    bar.classList.remove('copy-source');
+    document.body.classList.remove('gantt-copy-drag');
+    const finalLeft = parseFloat(ghost.style.left);
+    ghost.remove();
+    if (!moved) return;
+    const dayDelta = Math.round((finalLeft - origLeft) / GANTT_DAY_WIDTH);
+    if (dayDelta === 0) return;
+    const newStart = addDaysIso(schedule.planned_start, dayDelta);
+    const newEnd = addDaysIso(schedule.planned_end, dayDelta);
+    await copyScheduleFromGantt(schedule, newStart, newEnd);
+  }
+  try { bar.setPointerCapture(e.pointerId); } catch {}
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+}
+
+async function copyScheduleFromGantt(schedule, plannedStart, plannedEnd) {
+  const payload = {
+    category_id: schedule.category_id,
+    title: schedule.title,
+    description: schedule.description || null,
+    planned_start: plannedStart,
+    planned_end: plannedEnd,
+    status: schedule.status || 'pending',
+  };
+  try {
+    const res = await api('POST', '/api/schedules', payload);
+    const created = res && res.schedule;
+    if (created && created.id) {
+      state.undoStack.push({
+        kind: 'schedule-create',
+        id: created.id,
+        payload,
+      });
+      state.redoStack = [];
+    }
+    await Promise.all([
+      loadSchedules(state.selectedCategoryId),
+      loadAllSchedules(),
+    ]);
+    renderSchedules();
+    if (res && res.cascade) reportCascade(res.cascade);
+  } catch (err) {
+    alert(`복사 실패: ${mapServerError(err)}`);
+    renderSchedules();
+  }
+}
 
 // Find direct strong-edge schedule predecessors of a given schedule. Used by
 // Shift+drag (group move). We only follow edges where the predecessor is a
@@ -2009,10 +2118,17 @@ function attachBarDragHandlers(bar, schedule) {
     }
 
     // Modifier-click → connection draft mode (don't drag).
-    //   Cmd (mac) / Ctrl (win) = strong connection
-    //   Opt (mac) / Alt (win)  = weak connection
-    // Shift is reserved for group drag below.
-    const isStrong = e.metaKey || e.ctrlKey;
+    //   Cmd (mac) / Ctrl (win)           = strong connection
+    //   Opt (mac) / Alt (win)            = weak connection
+    //   Shift                            = group drag (below)
+    //   Cmd/Ctrl + Shift + drag          = copy this schedule onto the drop date
+    // Ctrl/Cmd+Shift is checked first so it doesn't start a strong-link draft.
+    const modCmd = e.metaKey || e.ctrlKey;
+    if (modCmd && e.shiftKey) {
+      startScheduleCopyDrag(bar, schedule, e);
+      return;
+    }
+    const isStrong = modCmd;
     const isWeak = e.altKey;
     if (isStrong || isWeak) {
       e.preventDefault();

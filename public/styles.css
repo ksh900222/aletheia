@@ -777,6 +777,17 @@ html, body {
 .gantt-bar.dragging { cursor: grabbing; opacity: 0.85; }
 /* Bars that move along during a Shift+drag group move (1-step strong preds). */
 .gantt-bar.group-extra { outline: 2px dashed var(--primary); outline-offset: 1px; }
+/* Ctrl/Cmd+Shift drag: original stays, this ghost follows the pointer. */
+.gantt-bar.copy-ghost {
+  opacity: 0.55;
+  outline: 2px dashed var(--primary);
+  outline-offset: 1px;
+  z-index: 4;
+  pointer-events: none;
+  cursor: copy;
+}
+.gantt-bar.copy-source { box-shadow: 0 0 0 1px var(--primary); }
+body.gantt-copy-drag, body.gantt-copy-drag .gantt-bar { cursor: copy !important; }
 .gantt-bar.shifted { background: var(--warning); color: var(--primary-ink); }
 .gantt-bar.connected-extra { opacity: 0.85; outline: 1px dashed rgba(255,255,255,0.18); }
 /* 우선순위 1~3 — 각 값은 스케줄 하나만 보유. 금(1)·은(2)·동(3) 메달 컨셉:
@@ -1194,6 +1205,8 @@ body.scope-sprint-review .in-reports-views.hidden { display: none !important; }
 }
 body.dep-drafting .gantt-bar { cursor: crosshair !important; }
 body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
+/* Held before the drag starts, so the bar advertises "this gesture copies". */
+body.gantt-mod-copy .gantt-bar:not(.team-readonly) { cursor: copy !important; }
 
 .gantt-today-line {
   position: absolute;
