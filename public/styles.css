@@ -49,6 +49,11 @@
   --info:           #6aa9ff;
   --info-soft:      rgba(106, 169, 255, 0.14);
 
+  /* 원본→사본 관계선 — 카테고리 색과 겹치지 않는 고정 보라 (app.js 의
+     COPY_LINK_COLOR 와 같은 값) */
+  --copy-link:      #b98cff;
+  --copy-link-soft: rgba(185, 140, 255, 0.16);
+
   /* Effects */
   --shadow-1: 0 1px 2px rgba(0,0,0,0.45);
   --shadow-2: 0 4px 16px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.6);
@@ -344,6 +349,8 @@ html, body {
 .link-pill:hover, .delay-pill:hover { filter: brightness(1.15); }
 .link-pill.strong   { background: var(--danger-soft);  color: var(--danger); }
 .link-pill.weak     { background: var(--success-soft); color: var(--success); }
+/* 원본↔사본 관계. 일정 계산과 무관해 클릭 전환도 없다. */
+.link-pill.copy     { background: var(--copy-link-soft); color: var(--copy-link); cursor: default; }
 .delay-pill.auto_shift { background: var(--info-soft);    color: var(--info); }
 .delay-pill.warn_only  { background: var(--warning-soft); color: var(--warning); }
 

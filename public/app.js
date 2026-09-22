@@ -1488,6 +1488,10 @@ function renderGantt() {
   applyGanttHorizontalScroll(jumpToToday);
 }
 
+// 원본→사본 선 색. 카테고리 색과 섞이지 않도록 고정값을 쓴다 (styles.css 의
+// --copy-link 와 같은 값).
+const COPY_LINK_COLOR = '#b98cff';
+
 // Get the category color associated with the given (type, id) endpoint —
 // used to color arrows so that overlapping lines from different sources
 // remain visually distinguishable. Falls back to the primary blue when no
@@ -1554,6 +1558,31 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
     return id;
   }
 
+  // copy 전용 화살촉: 속이 빈 마름모라 strong 의 채워진 삼각형과 형태로도
+  // 구분된다.
+  const copyMarkerByColor = new Map();
+  function ensureCopyMarker(color) {
+    if (copyMarkerByColor.has(color)) return copyMarkerByColor.get(color);
+    const id = `gantt-copy-arrow-${copyMarkerByColor.size}`;
+    const m = document.createElementNS(NS, 'marker');
+    m.setAttribute('id', id);
+    m.setAttribute('markerWidth', '10');
+    m.setAttribute('markerHeight', '8');
+    m.setAttribute('refX', '9');
+    m.setAttribute('refY', '4');
+    m.setAttribute('orient', 'auto');
+    m.setAttribute('markerUnits', 'userSpaceOnUse');
+    const diamond = document.createElementNS(NS, 'path');
+    diamond.setAttribute('d', 'M1,4 L5,1 L9,4 L5,7 z');
+    diamond.setAttribute('fill', 'none');
+    diamond.setAttribute('stroke', color);
+    diamond.setAttribute('stroke-width', '1.4');
+    m.appendChild(diamond);
+    defs.appendChild(m);
+    copyMarkerByColor.set(color, id);
+    return id;
+  }
+
   // Index schedules by composite (owner, category_id) so a dep referencing a
   // category resolves to the right peer's schedules in that category.
   const schedulesByCat = new Map();
@@ -1614,7 +1643,7 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
     const s = positions.get(succKey);
     if (!p || !s) return;
 
-    const yOff = d.link_type === 'weak' ? weakYOffset : 0;
+    const yOff = d.link_type === 'strong' ? 0 : weakYOffset;
     const x1 = p.right;
     const y1 = p.midY + yOff;
     const x2 = s.left;
@@ -1628,7 +1657,13 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
       path = `M ${x1} ${y1} L ${x1 + off} ${y1} L ${x1 + off} ${midY} L ${x2 - off} ${midY} L ${x2 - off} ${y2} L ${x2 - 2} ${y2}`;
     }
 
-    const color = categoryColorFor(d.pred_type, d.pred_id, d.owner);
+    // copy 엣지는 카테고리 색 대신 고정 보라색을 써서 strong/weak 와 한눈에
+    // 구분되게 한다 — 일정 의존이 아니라 "이 막대는 저 막대의 사본" 이라는
+    // 출처 표시이기 때문.
+    const color =
+      d.link_type === 'copy'
+        ? COPY_LINK_COLOR
+        : categoryColorFor(d.pred_type, d.pred_id, d.owner);
     const el = document.createElementNS(NS, 'path');
     el.setAttribute('d', path);
     el.setAttribute('fill', 'none');
@@ -1639,6 +1674,12 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
       el.setAttribute('stroke-width', '1.8');
       el.setAttribute('marker-end', `url(#${ensureMarker(color)})`);
       el.classList.add('arrow-strong');
+    } else if (d.link_type === 'copy') {
+      el.setAttribute('stroke-width', '1.6');
+      el.setAttribute('stroke-dasharray', '1.5 4');
+      el.setAttribute('stroke-linecap', 'round');
+      el.setAttribute('marker-end', `url(#${ensureCopyMarker(color)})`);
+      el.classList.add('arrow-copy');
     } else {
       el.setAttribute('stroke-width', '1.4');
       el.setAttribute('stroke-dasharray', '5 3');
@@ -1661,6 +1702,11 @@ function drawDependencyArrows(grid, positions, totalWidth, totalHeight) {
   // overlapping strong line doesn't obscure them.
   for (const d of allDeps) {
     if (d.link_type === 'weak') drawOne(d, 6);
+  }
+  // Pass 3: copy edges, offset the other way so 원본→사본 선이 의존성 선과
+  // 겹치지 않는다.
+  for (const d of allDeps) {
+    if (d.link_type === 'copy') drawOne(d, -6);
   }
 
   grid.appendChild(svg);
@@ -1844,6 +1890,15 @@ async function applyRedoRecord(record) {
       const created = await api('POST', '/api/schedules', record.payload);
       if (created && created.schedule && created.schedule.id) {
         record.id = created.schedule.id;
+        // 사본을 되살릴 때 원본과의 관계선도 같이 복원한다. 원본이 그 사이
+        // 삭제됐으면 링크만 건너뛴다.
+        if (record.copyOf && findScheduleById(record.copyOf)) {
+          try {
+            await linkCopyToOriginal(record.copyOf, record.id);
+          } catch (linkErr) {
+            console.warn('원본↔사본 연결 복원 실패:', linkErr);
+          }
+        }
       }
     } else {
       return false;
@@ -2011,6 +2066,19 @@ function startScheduleCopyDrag(bar, schedule, e) {
   document.addEventListener('pointercancel', onUp);
 }
 
+// 원본 → 사본 사이에 걸어주는 'copy' 엣지. 스케줄러가 무시하는 유형이라
+// 일정은 밀리지 않고, 간트에서 보라색 점선으로 관계만 보여준다.
+async function linkCopyToOriginal(originalId, copyId) {
+  return api('POST', '/api/dependencies', {
+    pred_type: 'schedule',
+    pred_id: originalId,
+    succ_type: 'schedule',
+    succ_id: copyId,
+    link_type: 'copy',
+    on_delay: 'warn_only',
+  });
+}
+
 async function copyScheduleFromGantt(schedule, plannedStart, plannedEnd) {
   const payload = {
     category_id: schedule.category_id,
@@ -2024,18 +2092,35 @@ async function copyScheduleFromGantt(schedule, plannedStart, plannedEnd) {
     const res = await api('POST', '/api/schedules', payload);
     const created = res && res.schedule;
     if (created && created.id) {
+      // 링크 생성이 실패해도 사본 자체는 남긴다 — 관계 표시가 빠질 뿐이다.
+      try {
+        await linkCopyToOriginal(schedule.id, created.id);
+      } catch (linkErr) {
+        console.warn('원본↔사본 연결 생성 실패:', linkErr);
+      }
       state.undoStack.push({
         kind: 'schedule-create',
         id: created.id,
         payload,
+        copyOf: schedule.id,
       });
       state.redoStack = [];
     }
     await Promise.all([
       loadSchedules(state.selectedCategoryId),
       loadAllSchedules(),
+      loadDependencies(),
     ]);
+    // 관계선이 보여야 복사의 의미가 드러나므로 화살표가 꺼져 있으면 켠다.
+    if (!state.showArrows) {
+      state.showArrows = true;
+      els.showArrowsBtn.classList.add('active');
+      els.showArrowsBtn.textContent = '화살표 ON';
+    }
     renderSchedules();
+    if (state.scope !== 'all' && state.scope !== 'all-reports') {
+      renderDependencies();
+    }
     if (res && res.cascade) reportCascade(res.cascade);
   } catch (err) {
     alert(`복사 실패: ${mapServerError(err)}`);
@@ -2552,7 +2637,9 @@ function renderDependencies() {
       <td><b>${curCell}</b></td>
       <td class="muted">${nextCell.includes('—') ? '' : '→'}</td>
       <td>${nextCell}</td>
-      <td><span class="link-pill ${d.link_type}" data-action="cycle-link" data-id="${d.id}" role="button" title="클릭하여 strong/weak 전환">${d.link_type}</span></td>
+      <td>${d.link_type === 'copy'
+        ? '<span class="link-pill copy" title="Ctrl+Shift 드래그로 만든 사본 — 일정 계산에는 영향 없음">copy</span>'
+        : `<span class="link-pill ${d.link_type}" data-action="cycle-link" data-id="${d.id}" role="button" title="클릭하여 strong/weak 전환">${d.link_type}</span>`}</td>
       <td>${d.link_type === 'strong'
         ? `<span class="delay-pill ${d.on_delay}" data-action="cycle-delay" data-id="${d.id}" role="button" title="클릭하여 auto_shift/warn_only 전환">${d.on_delay}</span>`
         : '<span class="muted">—</span>'}</td>
@@ -3310,6 +3397,7 @@ els.dependencyRows.addEventListener('click', async (e) => {
     const id = Number(linkPill.dataset.id);
     const dep = state.dependencies.find((d) => d.id === id);
     if (!dep) return;
+    if (dep.link_type === 'copy') return; // 사본 관계는 토글 대상이 아님
     const next = dep.link_type === 'strong' ? 'weak' : 'strong';
     try {
       await api('PUT', `/api/dependencies/${id}`, { link_type: next });

@@ -46,7 +46,7 @@ db.exec(`
     pred_id      INTEGER NOT NULL,
     succ_type    TEXT NOT NULL CHECK (succ_type IN ('schedule','category')),
     succ_id      INTEGER NOT NULL,
-    link_type    TEXT NOT NULL CHECK (link_type IN ('strong','weak')),
+    link_type    TEXT NOT NULL CHECK (link_type IN ('strong','weak','copy')),
     on_delay     TEXT NOT NULL DEFAULT 'auto_shift'
                  CHECK (on_delay IN ('auto_shift','warn_only')),
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -238,6 +238,48 @@ try {
   }
 } catch (e) {
   console.error('[db] schedules status migration failed:', e.message);
+}
+
+// Migration: dependencies.link_type — 'copy' 추가 (원본↔사본 관계). 스케줄러는
+// strong/weak 만 보므로 copy 엣지는 일정 계산에 영향을 주지 않고, 간트에서
+// 별도 스타일의 선으로만 표시된다. SQLite 는 CHECK 를 in-place 로 바꿀 수
+// 없어 테이블을 재생성한다.
+try {
+  const row = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='dependencies'`
+    )
+    .get();
+  if (
+    row &&
+    row.sql &&
+    row.sql.includes("CHECK (link_type IN ('strong','weak'))")
+  ) {
+    console.log("[db] migrating dependencies: allowing link_type 'copy'");
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE dependencies_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          pred_type    TEXT NOT NULL CHECK (pred_type IN ('schedule','category')),
+          pred_id      INTEGER NOT NULL,
+          succ_type    TEXT NOT NULL CHECK (succ_type IN ('schedule','category')),
+          succ_id      INTEGER NOT NULL,
+          link_type    TEXT NOT NULL CHECK (link_type IN ('strong','weak','copy')),
+          on_delay     TEXT NOT NULL DEFAULT 'auto_shift'
+                       CHECK (on_delay IN ('auto_shift','warn_only')),
+          created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE (pred_type, pred_id, succ_type, succ_id, link_type)
+        );
+        INSERT INTO dependencies_new SELECT * FROM dependencies;
+        DROP TABLE dependencies;
+        ALTER TABLE dependencies_new RENAME TO dependencies;
+        CREATE INDEX IF NOT EXISTS idx_deps_pred ON dependencies(pred_type, pred_id);
+        CREATE INDEX IF NOT EXISTS idx_deps_succ ON dependencies(succ_type, succ_id);
+      `);
+    })();
+  }
+} catch (e) {
+  console.error('[db] dependencies link_type migration failed:', e.message);
 }
 
 // Migration: schedules.priority — 우선순위 (1~3, nullable). 각 값은 전체

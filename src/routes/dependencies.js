@@ -38,7 +38,9 @@ function recomputeForEndpoints(endpoints) {
 // 끼리만 허용. 기존 DB 의 category 타입 row 는 GET 으로는 조회 가능하지만
 // 변경/추가 경로에서는 거부됨. 재활성화 시 'category' 추가만 하면 됨.
 const ENTITY_TYPES = new Set(['schedule' /*, 'category'*/]);
-const LINK_TYPES = new Set(['strong', 'weak']);
+// 'copy' 는 원본↔사본 관계 표시용. 스케줄러는 strong/weak 만 보므로 일정
+// 계산에는 영향이 없고, 간트에서 전용 스타일의 선으로만 그려진다.
+const LINK_TYPES = new Set(['strong', 'weak', 'copy']);
 const ON_DELAY = new Set(['auto_shift', 'warn_only']);
 
 const listStmt = db.prepare(`SELECT * FROM dependencies ORDER BY id ASC`);
