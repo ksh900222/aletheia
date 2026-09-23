@@ -540,6 +540,22 @@ html, body {
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .schedule-toolbar input[type="search"] { width: 200px; }
+.schedule-toolbar .date-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.schedule-toolbar .date-filter select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
 /* Modal inputs span the full label width (overrides the default
    content-width). The 4px margin-top creates breathing room between the
    label text and its input. Without this, the report body textarea

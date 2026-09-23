@@ -13,6 +13,7 @@ const state = {
   showArrows: false,      // overlay dependency arrows on the Gantt
   chainSort: false,       // chain-first sort: keep strong-edge chains adjacent
   hideDone: false,        // gantt: hide schedules whose status is 'done'
+  statusFilter: '',       // '' = 전체. 값이 있으면 그 상태만 모아서 본다.
   dateFocus: null,        // YYYY-MM-DD when a header date cell is clicked (sticky)
   depDraft: null,         // {scheduleId, linkType} when first bar is selected (Shift/Alt+click)
   undoStack: [],          // [{kind, ...}] — see performUndo for record shapes
@@ -90,6 +91,7 @@ const els = {
   showArrowsBtn: $('#show-arrows-btn'),
   chainSortBtn: $('#chain-sort-btn'),
   hideDoneToggle: $('#hide-done-toggle'),
+  statusFilter: $('#status-filter'),
   ganttTodayBtn: $('#gantt-today-btn'),
   scheduleDeleteBtn: $('#schedule-delete-btn'),
   scheduleSubmitBtn: $('#schedule-submit-btn'),
@@ -452,7 +454,12 @@ function effectiveSchedules() {
     // 동일 플래그가 「전체 리포트」(renderAllReportsView) 의 필터에도 적용됨.
     // 단독 사용 (팀 모드 OFF + 보관 팀원 없음) 시엔 숨김 자체가 의미 없으므로
     // 필터를 적용하지 않는다.
-    const noFilter = !state.scheduleQuery.trim() && !state.allOwner && teamOn();
+    // 상태 필터는 "그 상태만 모아 보기"라, 카테고리 숨김으로 빠지면 안 된다.
+    const noFilter =
+      !state.scheduleQuery.trim() &&
+      !state.allOwner &&
+      !state.statusFilter &&
+      teamOn();
     if (noFilter) {
       base = base.filter((s) => {
         const cat = findCategoryForSchedule(s);
@@ -484,6 +491,11 @@ function effectiveSchedules() {
       if (!s.owner && selfNameLower && selfNameLower.includes(q)) return true;
       return false;
     });
+  }
+  // 상태별 보기: 검색 결과 안에서도 그 상태만 남긴다. 완료 숨김은 간트
+  // 렌더에서 따로 끄므로 여기서는 상태 일치만 본다.
+  if (state.statusFilter) {
+    base = base.filter((s) => s.status === state.statusFilter);
   }
   return { schedules: base, baseIdSet };
 }
@@ -548,6 +560,16 @@ function filteredSchedules() {
   return effectiveSchedules().schedules;
 }
 
+function emptyScheduleMessage() {
+  if (state.statusFilter) return '해당 상태의 스케줄이 없습니다.';
+  if (state.scheduleQuery.trim()) return '검색 결과가 없습니다.';
+  if (state.scope === 'all') return '아직 스케줄이 없습니다.';
+  if (state.schedules.length === 0) {
+    return '스케줄이 없습니다. "+ 스케줄 추가"로 만들어보세요.';
+  }
+  return '검색 결과가 없습니다.';
+}
+
 function renderSchedules() {
   // Update visibility based on viewMode.
   if (els.ganttTodayBtn) {
@@ -576,12 +598,7 @@ function renderSchedules() {
     td.className = 'muted';
     td.style.textAlign = 'center';
     td.style.padding = '20px';
-    td.textContent =
-      state.scope === 'all'
-        ? '아직 스케줄이 없습니다.'
-        : (state.schedules.length === 0
-          ? '스케줄이 없습니다. "+ 스케줄 추가"로 만들어보세요.'
-          : '검색 결과가 없습니다.');
+    td.textContent = emptyScheduleMessage();
     tr.appendChild(td);
     els.scheduleRows.appendChild(tr);
     return;
@@ -660,6 +677,7 @@ function ganttContextKey() {
     state.selectedCategoryId || '',
     state.scheduleQuery || '',
     state.hideDone ? '1' : '0',
+    state.statusFilter || '',
     state.expandConnected ? '1' : '0',
     state.allOwner || '',
   ].join('|');
@@ -1220,19 +1238,18 @@ function renderGantt() {
   const baseIdSet = result.baseIdSet;
   // 「완료 숨김」 토글이 켜져 있으면 done 상태의 스케줄을 간트에서 제거.
   // 리스트 뷰는 영향 없음 — done 도 기록용으로 계속 표시.
-  const filteredForGantt = state.hideDone
-    ? result.schedules.filter((s) => s.status !== 'done')
-    : result.schedules;
+  // 상태별 보기는 그 상태만 모으는 것이라 완료 숨김보다 우선한다.
+  const filteredForGantt =
+    state.hideDone && !state.statusFilter
+      ? result.schedules.filter((s) => s.status !== 'done')
+      : result.schedules;
   // Gantt rows are reordered topologically: predecessors above successors,
   // isolated items at the bottom. Table view keeps date-based sort.
   const visible = topoSortForGantt(filteredForGantt);
   if (visible.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'gantt-empty';
-    empty.textContent =
-      state.schedules.length === 0
-        ? '스케줄이 없습니다.'
-        : '검색 결과가 없습니다.';
+    empty.textContent = emptyScheduleMessage();
     container.appendChild(empty);
     ganttSuppressScrollSave = false;
     return;
@@ -4176,6 +4193,21 @@ els.chainSortBtn.addEventListener('click', () => {
   els.chainSortBtn.textContent = state.chainSort ? '체인정렬 ON' : '체인정렬 OFF';
   renderSchedules();
 });
+
+// 상태별 보기. 값이 있으면 그 상태만 리스트·간트에 모은다.
+state.statusFilter = localStorage.getItem('statusFilter') || '';
+if (els.statusFilter) {
+  const known = new Set(
+    [...els.statusFilter.options].map((o) => o.value)
+  );
+  if (!known.has(state.statusFilter)) state.statusFilter = '';
+  els.statusFilter.value = state.statusFilter;
+  els.statusFilter.addEventListener('change', () => {
+    state.statusFilter = els.statusFilter.value || '';
+    localStorage.setItem('statusFilter', state.statusFilter);
+    renderSchedules();
+  });
+}
 
 // 「완료 숨김」 — 간트에서 done 항목 가림. localStorage 영구화.
 state.hideDone = localStorage.getItem('hideDone') === '1';

@@ -99,6 +99,17 @@
         <div class="section-head sub">
           <h3 id="schedule-section-title">스케줄</h3>
           <div class="schedule-toolbar">
+            <label id="status-filter-wrap" class="date-filter" title="선택한 상태만 모아서 봅니다. 완료 숨김이나 전체 간트 숨김과 관계없이 그 상태는 모두 표시됩니다.">
+              상태
+              <select id="status-filter">
+                <option value="">전체</option>
+                <option value="not_started">not_started</option>
+                <option value="in_progress">in_progress</option>
+                <option value="pending">pending</option>
+                <option value="blocked">blocked</option>
+                <option value="done">done</option>
+              </select>
+            </label>
             <label id="hide-done-toggle-wrap" class="cat-hide-toggle" title="체크 시 간트차트에서 done 상태의 스케줄을 숨깁니다">
               <input type="checkbox" id="hide-done-toggle" />
               <span>완료 숨김</span>
