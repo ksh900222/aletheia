@@ -1959,6 +1959,12 @@ document.addEventListener('keydown', (e) => {
   // the whole UI to neutral. Modals own ESC for their own close behavior,
   // so when a modal is open we don't drop sticky focus from under it.
   if (e.key === 'Escape') {
+    const htmlChoice = document.getElementById('html-attachment-choice-modal');
+    if (htmlChoice && !htmlChoice.classList.contains('hidden')) {
+      closeHtmlAttachmentChoice();
+      e.preventDefault();
+      return;
+    }
     let consumed = false;
     if (state.depDraft) {
       cancelDepDraft();
@@ -3568,6 +3574,124 @@ function selectedCategoryIdsFromForm() {
   ).map((el) => Number(el.value));
 }
 
+function isHtmlFileName(name) {
+  const base = String(name || '').split(/[?#]/)[0].replace(/\\/g, '/').split('/').pop();
+  return /\.html?$/i.test(base);
+}
+
+function isHtmlUpload(att) {
+  return isHtmlFileName(att && att.display_name) || isHtmlFileName(att && att.path);
+}
+
+function uploadFileUrl(base, storedPath, inline) {
+  const url = `${base || ''}/uploads/${encodeURIComponent(storedPath)}`;
+  return inline ? `${url}?inline=1` : url;
+}
+
+// HTML 업로드는 바로 받지 않고, 클릭 시 「브라우저에서 열기 / 다운로드」를 고른다.
+function uploadAttachmentLinkHtml(att, opts) {
+  const className = (opts && opts.className) || 'att-chip';
+  const prefix = opts && opts.prefix != null ? opts.prefix : '📎 ';
+  const base = (opts && opts.base) || '';
+  const name = att.display_name || att.path || '첨부';
+  const downloadUrl = uploadFileUrl(base, att.path, false);
+  const safeName = escapeHtml(name);
+  const safeDownload = escapeHtml(downloadUrl);
+  if (isHtmlUpload(att)) {
+    const inlineUrl = uploadFileUrl(base, att.path, true);
+    return `<a class="${className} att-html-choice" href="${escapeHtml(inlineUrl)}" data-html-choice="1" data-download-url="${safeDownload}" data-inline-url="${escapeHtml(inlineUrl)}" data-name="${safeName}" title="${safeName}">${prefix}${safeName}</a>`;
+  }
+  return `<a class="${className}" href="${safeDownload}" download="${safeName}" target="_blank" rel="noopener" title="${safeName}">${prefix}${safeName}</a>`;
+}
+
+function bindUploadAttachmentLink(link, att, base, prefix) {
+  const name = att.display_name || att.path || '첨부';
+  const labelPrefix = prefix == null ? '📎 ' : prefix;
+  const downloadUrl = uploadFileUrl(base, att.path, false);
+  link.title = name;
+  link.textContent = `${labelPrefix}${name}`;
+  if (isHtmlUpload(att)) {
+    const inlineUrl = uploadFileUrl(base, att.path, true);
+    link.classList.add('att-html-choice');
+    link.href = inlineUrl;
+    link.dataset.htmlChoice = '1';
+    link.dataset.downloadUrl = downloadUrl;
+    link.dataset.inlineUrl = inlineUrl;
+    link.dataset.name = name;
+    link.removeAttribute('download');
+    link.removeAttribute('target');
+    return;
+  }
+  link.href = downloadUrl;
+  link.download = name;
+  link.target = '_blank';
+  link.rel = 'noopener';
+}
+
+let htmlAttachmentChoice = null;
+
+function closeHtmlAttachmentChoice() {
+  const modal = document.getElementById('html-attachment-choice-modal');
+  if (modal) modal.classList.add('hidden');
+  htmlAttachmentChoice = null;
+}
+
+function openHtmlAttachmentChoice(el) {
+  const modal = document.getElementById('html-attachment-choice-modal');
+  if (!modal) return;
+  htmlAttachmentChoice = {
+    name: el.dataset.name || '',
+    downloadUrl: el.dataset.downloadUrl || '',
+    inlineUrl: el.dataset.inlineUrl || el.getAttribute('href') || '',
+  };
+  const nameEl = document.getElementById('html-attachment-choice-name');
+  if (nameEl) nameEl.textContent = htmlAttachmentChoice.name;
+  modal.classList.remove('hidden');
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest && e.target.closest('[data-html-choice]');
+  if (!el) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openHtmlAttachmentChoice(el);
+}, true);
+
+(function setupHtmlAttachmentChoice() {
+  const modal = document.getElementById('html-attachment-choice-modal');
+  if (!modal) return;
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeHtmlAttachmentChoice();
+  });
+  const cancelBtn = document.getElementById('html-attachment-choice-cancel');
+  const openBtn = document.getElementById('html-attachment-choice-open');
+  const downloadBtn = document.getElementById('html-attachment-choice-download');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeHtmlAttachmentChoice);
+  if (openBtn) {
+    openBtn.addEventListener('click', () => {
+      const url = htmlAttachmentChoice && htmlAttachmentChoice.inlineUrl;
+      closeHtmlAttachmentChoice();
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    });
+  }
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      const url = htmlAttachmentChoice && htmlAttachmentChoice.downloadUrl;
+      const name = htmlAttachmentChoice && htmlAttachmentChoice.name;
+      closeHtmlAttachmentChoice();
+      if (!url) return;
+      const a = document.createElement('a');
+      a.href = url;
+      if (name) a.download = name;
+      a.rel = 'noopener';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+  }
+})();
+
 function renderAttachmentList(savedAttachments) {
   els.attachmentList.innerHTML = '';
   // Show saved attachments (from server) followed by pending ones (in-memory,
@@ -3599,7 +3723,7 @@ function renderAttachmentList(savedAttachments) {
         `;
       }
     } else if (a.kind === 'upload') {
-      body = `<a class="att-name" href="/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener">${escapeHtml(a.display_name)}</a>`;
+      body = uploadAttachmentLinkHtml(a, { className: 'att-name', prefix: '' });
     } else {
       const fileHref = toFileHref(a.path);
       body = `
@@ -4413,7 +4537,7 @@ function renderAllReportsView() {
         const base = (a.peerHost && a.peerPort)
           ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}`
           : '';
-        return `<a class="att-chip" href="${base}/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+        return uploadAttachmentLinkHtml(a, { base, className: 'att-chip', prefix: '📎 ' });
       }
       // local_path: only reachable when it's our own. Team peer's local
       // filesystem isn't accessible from here — render as non-clickable hint.
@@ -4657,7 +4781,7 @@ els.allReportsDateClear.addEventListener('click', () => {
 // Click on a report list item → open edit modal (skip if user clicked an
 // attachment link inside).
 els.allReportsContent.addEventListener('click', (e) => {
-  if (e.target.closest('a')) return;
+  if (e.target.closest('a, [data-html-choice]')) return;
   if (e.target.matches('input.sprint-review-check')) return;
   const li = e.target.closest('li[data-report-id]');
   if (!li) return;
@@ -5035,17 +5159,12 @@ function openTeamReportViewer(r) {
       // Peer-imported uploads carry peerHost/peerPort; local reports (e.g.,
       // comment-only viewer browsing this host's own reports) have neither,
       // so fall back to same-origin /uploads/.
-      const href = (a.peerHost && a.peerPort)
-        ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}/uploads/${encodeURIComponent(a.path)}`
-        : `/uploads/${encodeURIComponent(a.path)}`;
       const link = document.createElement('a');
       link.className = 'att-chip';
-      link.href = href;
-      link.download = a.display_name;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.title = a.display_name;
-      link.textContent = `📎 ${a.display_name}`;
+      const base = (a.peerHost && a.peerPort)
+        ? `http://${encodeURIComponent(a.peerHost)}:${Number(a.peerPort)}`
+        : '';
+      bindUploadAttachmentLink(link, a, base, '📎 ');
       attEl.appendChild(link);
     } else {
       // local_path attachments live on the peer's filesystem and aren't
@@ -6994,7 +7113,7 @@ async function loadAndRenderOutbound() {
     const attachmentsHtml = (g.attachments || [])
       .map((a) => {
         if (a.kind === 'upload') {
-          return `<a class="att-chip" href="/uploads/${encodeURIComponent(a.path)}" download="${escapeHtml(a.display_name)}" target="_blank" rel="noopener" title="${escapeHtml(a.display_name)}">📎 ${escapeHtml(a.display_name)}</a>`;
+          return uploadAttachmentLinkHtml(a, { className: 'att-chip', prefix: '📎 ' });
         }
         return `<span class="att-chip" title="${escapeHtml(a.path)}">📁 ${escapeHtml(a.display_name)}</span>`;
       }).join('');
@@ -7118,12 +7237,7 @@ function openTaskOutboundDetail(group) {
     if (a.kind === 'upload') {
       const link = document.createElement('a');
       link.className = 'att-chip';
-      link.href = `/uploads/${encodeURIComponent(a.path)}`;
-      link.download = a.display_name;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.title = a.display_name;
-      link.textContent = `📎 ${a.display_name}`;
+      bindUploadAttachmentLink(link, a, '', '📎 ');
       taskOutboundDetailEls.attachments.appendChild(link);
     } else {
       const span = document.createElement('span');
@@ -7582,15 +7696,10 @@ async function openTaskDetail(reqId) {
   const senderPeer = (state.team && state.team.peers || []).find((p) => p.name === r.sender);
   for (const a of (r.attachments || [])) {
     if (a.kind === 'upload' && senderPeer) {
-      const href = `http://${encodeURIComponent(senderPeer.host)}:${Number(senderPeer.port)}/uploads/${encodeURIComponent(a.path)}`;
       const link = document.createElement('a');
       link.className = 'att-chip';
-      link.href = href;
-      link.download = a.display_name;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.title = a.display_name;
-      link.textContent = `📎 ${a.display_name}`;
+      const base = `http://${encodeURIComponent(senderPeer.host)}:${Number(senderPeer.port)}`;
+      bindUploadAttachmentLink(link, a, base, '📎 ');
       taskDetailEls.attachments.appendChild(link);
     } else {
       const span = document.createElement('span');

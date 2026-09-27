@@ -503,6 +503,26 @@ html, body {
 .attachment-list a { color: var(--primary); text-decoration: none; }
 .attachment-list a:hover { text-decoration: underline; }
 
+.modal.html-attachment-choice { z-index: 400; }
+.modal-card.html-attachment-choice-card { width: 440px; }
+.html-attachment-choice-name {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+.html-attachment-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+/* 읽기 전용 사용자는 편집 버튼이 숨겨지지만, HTML 열기는 조회 동작이다. */
+body.readonly #html-attachment-choice-open {
+  display: inline-block !important;
+}
+
 .attach-actions { display: flex; gap: 8px; margin-bottom: 8px; }
 .attach-actions label.btn { cursor: pointer; }
 

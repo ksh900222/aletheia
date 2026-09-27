@@ -141,7 +141,19 @@ function lookupDisplayName(storedPath) {
   return row && row.display_name ? String(row.display_name) : '';
 }
 
-function contentDispositionHeader(name) {
+function fileBaseName(name) {
+  return String(name || '')
+    .split(/[?#]/)[0]
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop();
+}
+
+function isHtmlFileName(name) {
+  return /\.html?$/i.test(fileBaseName(name));
+}
+
+function contentDispositionHeader(name, disposition) {
   const raw = String(name || 'download')
     .replace(/[\r\n\0]/g, '')
     .replace(/\\/g, '/')
@@ -153,7 +165,16 @@ function contentDispositionHeader(name) {
   const encoded = encodeURIComponent(raw).replace(/[!'()*]/g, (c) =>
     '%' + c.charCodeAt(0).toString(16).toUpperCase()
   );
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+  const kind = disposition === 'inline' ? 'inline' : 'attachment';
+  return `${kind}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+// ?inline=1 은 HTML(.html/.htm)만 브라우저에 표시한다. 그 외 형식은 쿼리를
+// 무시하고 항상 다운로드로 내려 실수로 실행 파일이 열리지 않게 한다.
+function wantsInlineHtml(displayName, storedRel, query) {
+  const flag = query && (query.inline === '1' || query.inline === 'true');
+  if (!flag) return false;
+  return isHtmlFileName(displayName) || isHtmlFileName(storedRel);
 }
 
 function resolveUploadFile(urlPath) {
@@ -181,7 +202,27 @@ function serveUploads(req, res, next) {
   fs.stat(resolved.full, (err, st) => {
     if (err || !st.isFile()) return res.status(404).end();
     const display = lookupDisplayName(resolved.rel) || path.basename(resolved.rel);
-    res.setHeader('Content-Disposition', contentDispositionHeader(display));
+    if (wantsInlineHtml(display, resolved.rel, req.query)) {
+      res.setHeader('Content-Disposition', contentDispositionHeader(display, 'inline'));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      // 업로드 HTML 은 이 앱과 같은 출처다. sandbox 로 고유 출처에 가두고
+      // connect-src/form-action 을 막아, 페이지 안의 스크립트가 IP 권한으로
+      // /api 를 호출하거나 폼을 제출하지 못하게 한다. 스크립트·스타일 렌더는
+      // 허용해서 리포트 HTML 자체는 그대로 보이게 한다.
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads",
+          "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'",
+          "connect-src 'none'",
+          "form-action 'none'",
+          "base-uri 'none'",
+        ].join('; ')
+      );
+    } else {
+      res.setHeader('Content-Disposition', contentDispositionHeader(display));
+    }
     res.sendFile(resolved.full, (sendErr) => {
       if (sendErr && !res.headersSent) next(sendErr);
     });
@@ -192,3 +233,6 @@ module.exports = router;
 module.exports.UPLOAD_DIR = UPLOAD_DIR;
 module.exports.cleanupUploadedFiles = cleanupUploadedFiles;
 module.exports.serveUploads = serveUploads;
+module.exports.isHtmlFileName = isHtmlFileName;
+module.exports.wantsInlineHtml = wantsInlineHtml;
+module.exports.contentDispositionHeader = contentDispositionHeader;
