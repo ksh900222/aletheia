@@ -818,8 +818,23 @@ body.readonly #html-attachment-choice-open {
   z-index: 10;
 }
 .gantt-bar.dragging { cursor: grabbing; opacity: 0.85; }
-/* Bars that move along during a Shift+drag group move (1-step strong preds). */
-.gantt-bar.group-extra { outline: 2px dashed var(--primary); outline-offset: 1px; }
+/* Shift+drag group move. Priority bars set outline:none, so these need
+   the extra class to win. */
+.gantt-bar.group-extra,
+.gantt-bar.priority-1.group-extra,
+.gantt-bar.priority-2.group-extra,
+.gantt-bar.priority-3.group-extra {
+  outline: 2px dashed var(--primary);
+  outline-offset: 1px;
+}
+.gantt-bar.group-source,
+.gantt-bar.priority-1.group-source,
+.gantt-bar.priority-2.group-source,
+.gantt-bar.priority-3.group-source {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+  z-index: 5;
+}
 /* Ctrl/Cmd+Shift drag: original stays, this ghost follows the pointer. */
 .gantt-bar.copy-ghost {
   opacity: 0.55;
@@ -1250,6 +1265,7 @@ body.dep-drafting .gantt-bar { cursor: crosshair !important; }
 body.dep-drafting .gantt-bar.dep-draft-first { cursor: pointer !important; }
 /* Held before the drag starts, so the bar advertises "this gesture copies". */
 body.gantt-mod-copy .gantt-bar:not(.team-readonly) { cursor: copy !important; }
+body.gantt-mod-group .gantt-bar:not(.team-readonly) { cursor: grab !important; }
 
 .gantt-today-line {
   position: absolute;

@@ -1943,12 +1943,23 @@ async function performRedo() {
 
 // Ctrl/Cmd+Shift held over the gantt means the next bar drag copies.
 function syncGanttCopyCursor(e) {
+  const typing = !e || isTypingTarget(e.target);
   const copy =
     !!e &&
     (e.ctrlKey || e.metaKey) &&
     e.shiftKey &&
-    !isTypingTarget(e.target);
+    !typing;
+  // Shift alone (no Ctrl/Cmd/Alt) is group-move. Show it before the click,
+  // the same way Ctrl+Shift advertises copy.
+  const group =
+    !!e &&
+    e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    !typing;
   document.body.classList.toggle('gantt-mod-copy', copy);
+  document.body.classList.toggle('gantt-mod-group', group);
 }
 
 document.addEventListener('keydown', (e) => {
@@ -2031,7 +2042,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', syncGanttCopyCursor);
 window.addEventListener('blur', () => {
-  document.body.classList.remove('gantt-mod-copy');
+  document.body.classList.remove('gantt-mod-copy', 'gantt-mod-group');
 });
 
 // Ctrl/Cmd+Shift+drag copies the bar onto the dropped dates. The original
@@ -2151,27 +2162,45 @@ async function copyScheduleFromGantt(schedule, plannedStart, plannedEnd) {
   }
 }
 
-// Find direct strong-edge schedule predecessors of a given schedule. Used by
-// Shift+drag (group move). We only follow edges where the predecessor is a
-// schedule (not a category) — category endpoints don't have a single bar to
-// drag visually. Walks 1 hop only by design (user spec).
-function directStrongSchedulePredecessors(schedule) {
+// Direct strong-edge schedule neighbors of a given schedule, both directions.
+// Used by Shift+drag (group move). Category endpoints have no single bar, so
+// only the schedule side of an edge is draggable. One hop only.
+function directStrongScheduleGroup(schedule) {
   const out = [];
-  const seen = new Set();
+  const seen = new Set([schedule.id]);
   for (const d of state.dependencies) {
     if (d.link_type !== 'strong') continue;
-    // Predecessor side must resolve to this schedule's id (succ).
-    const succHits =
+    const predIsMe =
+      (d.pred_type === 'schedule' && d.pred_id === schedule.id) ||
+      (d.pred_type === 'category' && d.pred_id === schedule.category_id);
+    const succIsMe =
       (d.succ_type === 'schedule' && d.succ_id === schedule.id) ||
       (d.succ_type === 'category' && d.succ_id === schedule.category_id);
-    if (!succHits) continue;
-    if (d.pred_type !== 'schedule') continue; // skip category preds
-    if (seen.has(d.pred_id)) continue;
-    seen.add(d.pred_id);
-    const pred = state.allSchedules.find((s) => s.id === d.pred_id);
-    if (pred) out.push(pred);
+    let otherId = null;
+    let otherType = null;
+    if (succIsMe && d.pred_type === 'schedule' && d.pred_id !== schedule.id) {
+      otherId = d.pred_id;
+      otherType = 'schedule';
+    } else if (predIsMe && d.succ_type === 'schedule' && d.succ_id !== schedule.id) {
+      otherId = d.succ_id;
+      otherType = 'schedule';
+    }
+    if (otherType !== 'schedule' || otherId == null || seen.has(otherId)) continue;
+    seen.add(otherId);
+    const other = state.allSchedules.find((s) => s.id === otherId && !s.owner);
+    if (other) out.push(other);
   }
   return out;
+}
+
+function findOwnGanttBar(grid, scheduleId) {
+  const bars = grid.querySelectorAll(
+    `.gantt-bar[data-schedule-id="${scheduleId}"]`
+  );
+  for (const b of bars) {
+    if (!b.dataset.owner) return b;
+  }
+  return null;
 }
 
 function attachBarDragHandlers(bar, schedule) {
@@ -2245,33 +2274,35 @@ function attachBarDragHandlers(bar, schedule) {
       return;
     }
 
-    // Shift held at mousedown → group drag: every direct strong-schedule
-    // predecessor moves together with the dragged bar (same delta).
+    // Shift held at pointerdown → group drag. Highlight the strong neighbors
+    // immediately (Ctrl highlights on click; Shift used to wait for a drag,
+    // so a click or a sub-day twitch looked like nothing happened).
     const isGroupDrag = e.shiftKey;
 
     e.preventDefault();
     const startX = e.clientX;
     const origLeft = parseFloat(bar.style.left);
     bar.classList.add('dragging');
+    if (isGroupDrag) bar.classList.add('group-source');
     let moved = false;
 
-    // Build the group: dragged bar + bars of direct strong-schedule preds.
-    // For each, capture original left + DOM ref. Bars are looked up via the
-    // grid's `[data-schedule-id]` so this works in all-view too.
+    // Dragged bar + direct strong neighbors (pred and succ). Own bars only —
+    // team bars share numeric ids, so match the bar that has no owner.
     const grid = bar.closest('.gantt-grid');
     const groupExtras = [];
     if (isGroupDrag && grid) {
-      for (const pred of directStrongSchedulePredecessors(schedule)) {
-        const predBar = grid.querySelector(
-          `.gantt-bar[data-schedule-id="${pred.id}"]`
-        );
-        if (!predBar) continue;
+      for (const other of directStrongScheduleGroup(schedule)) {
+        const otherBar = findOwnGanttBar(grid, other.id);
+        if (!otherBar || otherBar === bar) continue;
         groupExtras.push({
-          schedule: pred,
-          bar: predBar,
-          origLeft: parseFloat(predBar.style.left),
+          schedule: other,
+          bar: otherBar,
+          origLeft: parseFloat(otherBar.style.left),
         });
-        predBar.classList.add('dragging', 'group-extra');
+        otherBar.classList.add('dragging', 'group-extra');
+      }
+      if (groupExtras.length === 0) {
+        showToast('함께 옮길 strong 연결이 없습니다.');
       }
     }
 
@@ -2289,16 +2320,24 @@ function attachBarDragHandlers(bar, schedule) {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onUp);
-      bar.classList.remove('dragging');
+      bar.classList.remove('dragging', 'group-source');
       for (const g of groupExtras) {
         g.bar.classList.remove('dragging', 'group-extra');
       }
 
-      // Pure click (no real drag) → open edit modal. Group-drag with no
-      // movement still falls through here so it's harmless.
+      // Pure click (no real drag) → open edit modal. Shift+click is the
+      // group gesture: don't open the editor, tell the user to drag.
       if (!moved) {
         bar.style.left = origLeft + 'px';
         for (const g of groupExtras) g.bar.style.left = g.origLeft + 'px';
+        if (isGroupDrag) {
+          if (groupExtras.length > 0) {
+            showToast(
+              `Shift+드래그하면 연결된 일정 ${groupExtras.length}개가 함께 이동합니다.`
+            );
+          }
+          return;
+        }
         openScheduleModal(schedule);
         return;
       }
@@ -2308,6 +2347,11 @@ function attachBarDragHandlers(bar, schedule) {
       if (dayDelta === 0) {
         bar.style.left = origLeft + 'px';
         for (const g of groupExtras) g.bar.style.left = g.origLeft + 'px';
+        if (isGroupDrag && groupExtras.length > 0) {
+          showToast(
+            `Shift+드래그하면 연결된 일정 ${groupExtras.length}개가 함께 이동합니다.`
+          );
+        }
         return;
       }
       const newStart = addDaysIso(schedule.planned_start, dayDelta);
