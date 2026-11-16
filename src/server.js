@@ -11,6 +11,7 @@ const attachmentsRouter = require('./routes/attachments');
 const tasksRouter = require('./routes/tasks');
 const sprintGroupsRouter = require('./routes/sprint_groups');
 const archiveRouter = require('./routes/archive');
+const collabLinksRouter = require('./routes/collab_links');
 const scheduler = require('./engine/scheduler');
 const holidays = require('./holidays');
 const teamSettings = require('./team/settings');
@@ -155,8 +156,10 @@ app.get('/api/auth/me', (req, res) => {
 // exporter.computeVersion() 은 categories/schedules/dependencies/reports/
 // report_comments/sprint_groups 의 COUNT + MAX(updated_at) 조합이라
 // row 추가·수정·삭제를 모두 잡는다 (~100 바이트 응답).
+// 공동작업 링크는 팀원에게 공유되지 않으므로 peer 용 /api/team/version 이 아닌
+// 이 본인 탭 전용 fingerprint 에만 덧붙인다.
 app.get('/api/version', (req, res) => {
-  res.json({ version: exporter.computeVersion() });
+  res.json({ version: `${exporter.computeVersion()}::cl${collabLinksRouter.computeVersion()}` });
 });
 
 // /api/team/comment-{out,edit-out,remove-out} 가드 — 본인 UI 가 코멘트를
@@ -229,6 +232,11 @@ app.use('/api/tasks', (req, res, next) => {
 }, tasksRouter);
 app.use('/api/sprint-groups', sprintGroupsRouter);
 app.use('/api/archive', archiveRouter);
+// 공동작업 링크 (Teams 채팅 링크 등) 도 개인 메모 성격 → canWrite 만 접근 (GET 포함).
+app.use('/api/collab-links', (req, res, next) => {
+  if (canWrite(req)) return next();
+  return res.status(403).json({ error: 'forbidden_collab_from_ip', ip: clientIp(req) });
+}, collabLinksRouter);
 
 app.post('/api/recompute', (req, res) => {
   res.json(scheduler.recomputeAll());
