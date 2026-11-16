@@ -562,6 +562,29 @@ try {
   console.error('[db] imported_* migration failed:', e.message);
 }
 
+// 공동작업 링크 — Teams 채팅 등에서 공유된 링크를 설명과 함께 보관하는 개인용
+// 목록. 팀 스냅샷/아카이브에는 포함하지 않는다 (본인 PC 에만 저장).
+// hidden = 1 은 「숨김」(소프트 숨김) — 목록 기본 보기에서만 빠지고 행은 유지.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS collab_links (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      url          TEXT NOT NULL,
+      title        TEXT NOT NULL DEFAULT '',
+      description  TEXT NOT NULL DEFAULT '',
+      category_id  INTEGER,
+      tag          TEXT NOT NULL DEFAULT '',
+      hidden       INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_collab_links_hidden ON collab_links(hidden);
+  `);
+} catch (e) {
+  console.error('[db] collab_links migration failed:', e.message);
+}
+
 // Migration: 첨부파일 display_name 의 mojibake 일괄 교정. multer/busboy 가
 // Content-Disposition 의 filename 을 latin1 으로 디코드해서 한글 UTF-8 바이트
 // 가 깨진 상태로 DB 에 저장된 케이스가 있다. 이번 부팅에 한 번만 실행되어

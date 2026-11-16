@@ -41,7 +41,7 @@ $env:PORT="4000"; npm start
 
 | 경로 | 내용 |
 |---|---|
-| `data/planner.db` | SQLite 메인 DB (categories, schedules, dependencies, reports, attachments) |
+| `data/planner.db` | SQLite 메인 DB (categories, schedules, dependencies, reports, attachments, collab_links) |
 | `data/holidays.json` | 한국 공휴일 캐시 — 서버 시작 시/24h 마다 외부 API 에서 자동 갱신 |
 | `uploads/` | 첨부 파일 (사용자 업로드) |
 
@@ -158,6 +158,15 @@ npm run dev
 - **ESC** — sticky 모드 / 의존 생성 모드 해제.
 - **Cmd/Ctrl + Z** — 실행 취소 (드래그 / 상태 변경 / 의존 생성 등).
 - **Cmd/Ctrl + Shift + Z** 또는 **Cmd/Ctrl + Y** — 다시 실행.
+
+## 공동작업 (공유 링크 모음)
+
+사이드바의 **공동작업** 버튼 — Teams 채팅 등에서 공유된 링크를 제목·설명·관련 카테고리·태그와 함께 기록.
+
+- **+ 링크 추가** 로 등록 (URL 필수, http/https 만 허용. `teams.microsoft.com/...` 처럼 스킴 없이 붙여 넣으면 `https://` 자동 보정).
+- 제목 클릭 시 새 탭으로 열림. **편집** / **숨기기**(목록에서만 감춤) / **삭제**(확인 후 영구 삭제).
+- **숨긴 항목 보기** 체크 시 숨긴 링크가 함께 보이고 **숨김 해제** 가능. 검색창은 제목·설명·링크·태그·카테고리 대상.
+- 데이터는 `data/planner.db` 의 `collab_links` 테이블에 저장. 본인 PC 전용 — 팀원 동기화·데이터 보관 ZIP 에는 포함되지 않고, API(`/api/collab-links`)는 쓰기 허용 IP 에서만 접근 가능.
 
 ## 변경 이력
 

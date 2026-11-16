@@ -8,7 +8,11 @@ const state = {
   editingReportId: null,  // when modal is in edit mode
   scheduleView: 'list',   // 'list' | 'gantt'
   scheduleQuery: '',      // free-text filter for schedule title
-  scope: 'category',      // 'category' | 'all' | 'all-reports'
+  scope: 'category',      // 'category' | 'all' | 'all-reports' | 'sprint-review' | 'collab'
+  collabLinks: [],        // /api/collab-links 응답 (숨김 포함 전체)
+  collabQuery: '',        // 공동작업 검색어
+  collabShowHidden: false, // 「숨긴 항목 보기」
+  editingCollabId: null,  // 공동작업 모달이 편집 모드일 때 대상 id
   expandConnected: false, // category mode: include schedules connected via dependencies
   showArrows: false,      // overlay dependency arrows on the Gantt
   chainSort: false,       // chain-first sort: keep strong-edge chains adjacent
@@ -75,6 +79,18 @@ const els = {
   dependencyForm: $('#dependency-form'),
   dependencyCreateModal: $('#dependency-create-modal'),
   dependencyCreateForm: $('#dependency-create-form'),
+  collabBtn: $('#collab-btn'),
+  collabView: $('#collab-view'),
+  collabRows: $('#collab-rows'),
+  collabSummary: $('#collab-summary'),
+  collabSearch: $('#collab-search'),
+  collabShowHidden: $('#collab-show-hidden'),
+  collabAddBtn: $('#collab-add-btn'),
+  collabModal: $('#collab-modal'),
+  collabModalTitle: $('#collab-modal-title'),
+  collabModalMeta: $('#collab-modal-meta'),
+  collabForm: $('#collab-form'),
+  collabUrlError: $('#collab-url-error'),
   allViewBtn: $('#all-view-btn'),
   allReportsBtn: $('#all-reports-btn'),
   allReportsTitle: $('#all-reports-title'),
@@ -264,6 +280,7 @@ function linkifyHtml(s) {
 
 function renderCategories() {
   els.categoryList.innerHTML = '';
+  els.collabBtn.classList.toggle('active', state.scope === 'collab');
   els.allViewBtn.classList.toggle('active', state.scope === 'all');
   els.allReportsBtn.classList.toggle('active', state.scope === 'all-reports');
   if (els.sprintReviewBtn) {
@@ -329,6 +346,17 @@ function renderCategoryView() {
   // below runs — the helper hides itself when scope !== 'all' or team mode
   // is OFF, so it's safe to always call.
   if (typeof syncAllOwnerOptions === 'function') syncAllOwnerOptions();
+
+  if (state.scope === 'collab') {
+    els.emptyState.classList.add('hidden');
+    els.categoryView.classList.add('hidden');
+    els.allReportsView.classList.add('hidden');
+    els.collabView.classList.remove('hidden');
+    document.body.classList.remove('scope-all', 'scope-all-reports', 'scope-sprint-review');
+    renderCollabView();
+    return;
+  }
+  els.collabView.classList.add('hidden');
 
   // 전체 리포트 와 스프린트 리뷰 는 동일한 #all-reports-view DOM 을 공유하고
   // body 의 scope-* 클래스로 차이를 표현. renderAllReportsView 는 그 안에서 분기.
@@ -1132,6 +1160,9 @@ async function checkAndReloadIfChanged() {
     }
     if (state.scope === 'sprint-review') {
       try { await loadSprintGroups(); } catch { /* non-fatal */ }
+    }
+    if (state.scope === 'collab') {
+      try { await loadCollabLinks(); } catch { /* non-fatal */ }
     }
     if (typeof renderCategoryView === 'function') renderCategoryView();
     _lastSeenVersion = version;
@@ -2825,6 +2856,266 @@ async function selectAllReportsView() {
 async function loadAllReports() {
   state.allReports = await api('GET', '/api/reports');
 }
+
+// ---------- 공동작업 (Teams 등에서 공유된 링크 모음) ----------
+// 본인 PC DB(collab_links)에만 저장되며 팀원에게 동기화되지 않는다.
+let collabLoadError = '';
+
+async function selectCollabView() {
+  state.scope = 'collab';
+  state.selectedCategoryId = null;
+  state.expandConnected = false;
+  renderCategories();
+  await loadCollabLinks();
+  renderCategoryView();
+  queueSaveLastView();
+}
+
+async function loadCollabLinks() {
+  try {
+    state.collabLinks = await api('GET', '/api/collab-links');
+    collabLoadError = '';
+  } catch (err) {
+    state.collabLinks = [];
+    collabLoadError = err && err.status === 403
+      ? '이 IP 에서는 공동작업 링크를 볼 수 없습니다 (허용된 IP 에서만 가능).'
+      : `공동작업 링크를 불러오지 못했습니다: ${err && err.message}`;
+  }
+}
+
+// http(s) 만 저장 가능. 스킴 없이 붙여 넣은 주소(teams.microsoft.com/...)는 https:// 를 붙여 준다.
+function normalizeCollabUrl(raw) {
+  const formatError = { error: '올바른 링크 형식이 아닙니다. 예: https://teams.microsoft.com/...' };
+  let s = String(raw || '').trim();
+  if (!s) return { error: '링크(URL)를 입력해주세요.' };
+  const hadScheme = /^[a-z][a-z0-9+.-]*:/i.test(s);
+  if (!hadScheme) s = `https://${s}`;
+  let u;
+  try { u = new URL(s); } catch { return formatError; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    return { error: 'http:// 또는 https:// 로 시작하는 링크만 저장할 수 있습니다.' };
+  }
+  if (!u.hostname || /\s/.test(s)) return formatError;
+  // 스킴 없이 입력한 경우엔 도메인 형태(점 포함)일 때만 링크로 인정 — 일반 단어 오입력 방지.
+  if (!hadScheme && !u.hostname.includes('.')) return formatError;
+  return { url: s };
+}
+
+function collabHost(url) {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
+function collabMatches(l, q) {
+  if (!q) return true;
+  const hay = [l.title, l.description, l.url, l.tag, l.category_name]
+    .filter(Boolean).join('\n').toLowerCase();
+  return q.split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
+}
+
+function renderCollabView() {
+  const all = state.collabLinks;
+  const hiddenCount = all.filter((l) => l.hidden).length;
+  const q = state.collabQuery.trim().toLowerCase();
+  const rows = all
+    .filter((l) => state.collabShowHidden || !l.hidden)
+    .filter((l) => collabMatches(l, q));
+
+  els.collabShowHidden.checked = state.collabShowHidden;
+  const parts = [`링크 ${all.length - hiddenCount}건`];
+  if (hiddenCount > 0) parts.push(`숨김 ${hiddenCount}건`);
+  if (q) parts.push(`검색 결과 ${rows.length}건`);
+  els.collabSummary.textContent = collabLoadError ||
+    `Teams 채팅 등에서 공유된 링크를 설명과 함께 모아 둡니다 · ${parts.join(' · ')}`;
+
+  els.collabRows.innerHTML = '';
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    let msg = '아직 저장된 링크가 없습니다. 「+ 링크 추가」로 Teams 링크를 기록해 보세요.';
+    if (collabLoadError) msg = collabLoadError;
+    else if (q) msg = '검색 결과가 없습니다.';
+    else if (all.length > 0) msg = '표시할 링크가 없습니다. 「숨긴 항목 보기」를 켜면 숨긴 링크가 보입니다.';
+    tr.innerHTML = `<td colspan="5" class="muted collab-empty">${escapeHtml(msg)}</td>`;
+    els.collabRows.appendChild(tr);
+    return;
+  }
+
+  for (const l of rows) {
+    const tr = document.createElement('tr');
+    if (l.hidden) tr.classList.add('collab-hidden-row');
+    const safeUrl = escapeHtml(l.url);
+    const titleText = l.title || collabHost(l.url) || l.url;
+    const related = [];
+    if (l.category_name) {
+      const color = /^#[0-9a-f]{6}$/i.test(l.category_color || '') ? l.category_color : 'var(--primary)';
+      related.push(`<span class="collab-cat"><span class="swatch" style="background:${color}"></span>${escapeHtml(l.category_name)}</span>`);
+    }
+    if (l.tag) related.push(`<span class="collab-tag">${escapeHtml(l.tag)}</span>`);
+    const created = formatCommentTimestamp(l.created_at);
+    tr.innerHTML = `
+      <td>
+        <a class="collab-title" href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="${safeUrl}">${escapeHtml(titleText)}</a>
+        ${l.hidden ? '<span class="collab-hidden-badge">숨김</span>' : ''}
+        <div class="collab-url" title="${safeUrl}">${safeUrl}</div>
+      </td>
+      <td class="collab-desc">${l.description ? linkifyHtml(l.description) : '<span class="muted">—</span>'}</td>
+      <td>${related.join('') || '<span class="muted">—</span>'}</td>
+      <td title="${escapeHtml(created)}">${escapeHtml(created.slice(0, 10))}</td>
+      <td class="actions">
+        <button class="btn" data-collab-action="edit" data-id="${l.id}">편집</button>
+        <button class="btn" data-collab-action="${l.hidden ? 'unhide' : 'hide'}" data-id="${l.id}">${l.hidden ? '숨김 해제' : '숨기기'}</button>
+        <button class="btn btn-danger" data-collab-action="delete" data-id="${l.id}">삭제</button>
+      </td>
+    `;
+    els.collabRows.appendChild(tr);
+  }
+}
+
+function fillCollabCategoryOptions(selectedId) {
+  const sel = els.collabForm.elements.category_id;
+  sel.innerHTML = '<option value="">없음</option>';
+  for (const c of state.categories) {
+    const opt = document.createElement('option');
+    opt.value = String(c.id);
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  }
+  sel.value = selectedId ? String(selectedId) : '';
+}
+
+function showCollabUrlError(msg) {
+  els.collabUrlError.textContent = msg || '';
+  els.collabUrlError.classList.toggle('hidden', !msg);
+  els.collabForm.elements.url.classList.toggle('invalid', !!msg);
+}
+
+function openCollabModal(link) {
+  state.editingCollabId = link ? link.id : null;
+  els.collabModalTitle.textContent = link ? '링크 편집' : '링크 추가';
+  const f = els.collabForm.elements;
+  f.url.value = link ? link.url : '';
+  f.title.value = link ? link.title : '';
+  f.description.value = link ? link.description : '';
+  f.tag.value = link ? link.tag : '';
+  fillCollabCategoryOptions(link ? link.category_id : null);
+  if (link) {
+    const updated = link.updated_at && link.updated_at !== link.created_at
+      ? ` · 수정 ${formatCommentTimestamp(link.updated_at)}`
+      : '';
+    els.collabModalMeta.textContent = `등록 ${formatCommentTimestamp(link.created_at)}${updated}`;
+    els.collabModalMeta.classList.remove('hidden');
+  } else {
+    els.collabModalMeta.classList.add('hidden');
+  }
+  showCollabUrlError('');
+  els.collabModal.classList.remove('hidden');
+  f.url.focus();
+}
+
+function closeCollabModal() {
+  els.collabModal.classList.add('hidden');
+  state.editingCollabId = null;
+}
+
+const COLLAB_ERROR_MESSAGES = {
+  invalid_url: 'http:// 또는 https:// 로 시작하는 올바른 링크를 입력해주세요.',
+  invalid_title: '제목은 200자 이하로 입력해주세요.',
+  invalid_description: '설명은 5000자 이하로 입력해주세요.',
+  invalid_tag: '태그는 100자 이하로 입력해주세요.',
+  invalid_category: '선택한 카테고리를 찾을 수 없습니다. 다시 선택해주세요.',
+  not_found: '이미 삭제된 링크입니다.',
+};
+
+function collabErrorMessage(err) {
+  return COLLAB_ERROR_MESSAGES[err && err.message] || (err && err.message) || '알 수 없는 오류';
+}
+
+els.collabBtn.addEventListener('click', () => {
+  selectCollabView();
+});
+
+els.collabAddBtn.addEventListener('click', () => openCollabModal(null));
+
+els.collabSearch.addEventListener('input', (e) => {
+  state.collabQuery = e.target.value || '';
+  renderCollabView();
+});
+
+els.collabShowHidden.addEventListener('change', () => {
+  state.collabShowHidden = els.collabShowHidden.checked;
+  renderCollabView();
+});
+
+els.collabForm.elements.url.addEventListener('input', () => showCollabUrlError(''));
+
+els.collabForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = els.collabForm.elements;
+  const norm = normalizeCollabUrl(f.url.value);
+  if (norm.error) {
+    showCollabUrlError(norm.error);
+    f.url.focus();
+    return;
+  }
+  f.url.value = norm.url;
+  const body = {
+    url: norm.url,
+    title: f.title.value.trim(),
+    description: f.description.value.trim(),
+    tag: f.tag.value.trim(),
+    category_id: f.category_id.value ? Number(f.category_id.value) : null,
+  };
+  const editingId = state.editingCollabId;
+  try {
+    if (editingId) {
+      await api('PUT', `/api/collab-links/${editingId}`, body);
+    } else {
+      await api('POST', '/api/collab-links', body);
+    }
+  } catch (err) {
+    if (err && err.message === 'invalid_url') showCollabUrlError(collabErrorMessage(err));
+    else showToast(`저장 실패: ${collabErrorMessage(err)}`, 'error');
+    return;
+  }
+  closeCollabModal();
+  await loadCollabLinks();
+  renderCollabView();
+});
+
+els.collabModal.addEventListener('click', (e) => {
+  if (e.target === els.collabModal || e.target.matches('[data-collab-close]')) closeCollabModal();
+});
+
+els.collabModal.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeCollabModal();
+});
+
+els.collabRows.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-collab-action]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  const link = state.collabLinks.find((l) => l.id === id);
+  if (!link) return;
+  const action = btn.dataset.collabAction;
+  const label = link.title || collabHost(link.url) || link.url;
+  try {
+    if (action === 'edit') {
+      openCollabModal(link);
+      return;
+    }
+    if (action === 'hide' || action === 'unhide') {
+      await api('PUT', `/api/collab-links/${id}`, { hidden: action === 'hide' });
+    } else if (action === 'delete') {
+      if (!confirm(`「${label}」 링크를 영구 삭제하시겠습니까?\n삭제하면 되돌릴 수 없습니다. 목록에서만 치우려면 「숨기기」를 사용하세요.`)) return;
+      await api('DELETE', `/api/collab-links/${id}`);
+    } else {
+      return;
+    }
+  } catch (err) {
+    showToast(`처리 실패: ${collabErrorMessage(err)}`, 'error');
+  }
+  await loadCollabLinks();
+  renderCollabView();
+});
 
 // ---------- Cascade / conflict reporting ----------
 function describeShift(sh) {
@@ -5547,6 +5838,7 @@ refreshAll().then(() => {
     }
     if (saved.scope === 'all') { selectAllView(); return; }
     if (saved.scope === 'all-reports') { selectAllReportsView(); return; }
+    if (saved.scope === 'collab') { selectCollabView(); return; }
     if (saved.scope === 'sprint-review') {
       // activeSprintGroupKey 는 selectSprintReviewView 가 그룹 로드 후 결정.
       // 저장된 키가 살아 있으면 그 그룹으로 자동 활성.
