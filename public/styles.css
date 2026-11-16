@@ -2664,3 +2664,95 @@ body.project-frozen #freeze-btn { display: none !important; }
   margin: 0;
   cursor: pointer;
 }
+
+/* ----- 공동작업 (공유 링크 모음) ----- */
+.collab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.collab-toolbar .cat-hide-toggle { margin-right: 2px; white-space: nowrap; }
+.collab-toolbar input[type="search"] {
+  width: 260px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.collab-toolbar input[type="search"]::placeholder { color: var(--muted-2); }
+.collab-toolbar input[type="search"]:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.collab-table { table-layout: fixed; }
+.collab-table td { vertical-align: top; }
+.collab-table .collab-title {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-word;
+}
+.collab-table .collab-title:hover { text-decoration: underline; }
+.collab-table .collab-url {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collab-table .collab-desc {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.collab-table .collab-desc a { color: var(--info); }
+.collab-table td.actions { display: table-cell; white-space: nowrap; text-align: right; }
+.collab-table td.actions .btn { padding: 4px 10px; font-size: 12px; margin-left: 4px; }
+.collab-table td.collab-empty { text-align: center; padding: 28px 14px; }
+.collab-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px 4px 0;
+  font-size: 12.5px;
+}
+.collab-cat .swatch {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.collab-tag {
+  display: inline-block;
+  font-size: 11.5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+}
+.collab-hidden-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+  vertical-align: middle;
+}
+.collab-table tr.collab-hidden-row td { opacity: 0.55; }
+.collab-table tr.collab-hidden-row td.actions { opacity: 1; }
+.modal-card.collab-modal-card { width: 560px; }
+.modal-card input.invalid { border-color: var(--danger); }
+.collab-form-error {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--danger);
+}
+body.readonly #collab-add-btn,
+body.readonly [data-collab-action] { display: none !important; }

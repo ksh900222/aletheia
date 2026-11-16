@@ -37,6 +37,7 @@
 
   <main class="layout">
     <aside class="sidebar">
+      <button id="collab-btn" class="all-view-btn" title="Teams 등에서 공유된 링크를 설명과 함께 모아 두는 곳">공동작업</button>
       <button id="all-view-btn" class="all-view-btn">전체 간트</button>
       <button id="all-reports-btn" class="all-view-btn">전체 리포트</button>
       <button id="sprint-review-btn" class="all-view-btn">스프린트 리뷰</button>
@@ -50,6 +51,35 @@
     <section class="content">
       <div id="empty-state" class="empty">
         왼쪽에서 카테고리를 선택하거나 추가해주세요.
+      </div>
+
+      <div id="collab-view" class="hidden">
+        <div class="section-head">
+          <div>
+            <h2>공동작업</h2>
+            <p id="collab-summary" class="muted"></p>
+          </div>
+          <div class="collab-toolbar">
+            <label class="cat-hide-toggle" title="체크 시 숨긴 링크도 함께 표시합니다. 숨긴 링크는 「숨김 해제」로 되돌릴 수 있습니다.">
+              <input type="checkbox" id="collab-show-hidden" />
+              <span>숨긴 항목 보기</span>
+            </label>
+            <input id="collab-search" type="search" placeholder="제목/설명/링크/태그 검색..." title="제목·설명·링크·태그·카테고리에서 검색 (공백으로 여러 단어)" />
+            <button type="button" id="collab-add-btn" class="btn btn-primary">+ 링크 추가</button>
+          </div>
+        </div>
+        <table id="collab-table" class="schedules collab-table">
+          <thead>
+            <tr>
+              <th style="width: 30%">제목 / 링크</th>
+              <th>설명</th>
+              <th style="width: 150px">관련</th>
+              <th style="width: 100px">등록일</th>
+              <th style="width: 220px"></th>
+            </tr>
+          </thead>
+          <tbody id="collab-rows"></tbody>
+        </table>
       </div>
 
       <div id="all-reports-view" class="hidden">
@@ -247,6 +277,30 @@
         <div class="modal-actions">
           <button type="button" class="btn" data-close>취소</button>
           <button type="submit" class="btn btn-primary">확인</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 공동작업 링크 추가/편집 modal -->
+  <div id="collab-modal" class="modal hidden">
+    <div class="modal-card collab-modal-card">
+      <h3 id="collab-modal-title">링크 추가</h3>
+      <form id="collab-form" novalidate>
+        <label>링크 (URL)<input name="url" type="url" required maxlength="4096" autocomplete="off" placeholder="https://teams.microsoft.com/l/..." /></label>
+        <p id="collab-url-error" class="collab-form-error hidden"></p>
+        <label>제목<input name="title" maxlength="200" autocomplete="off" placeholder="예: 주간 카메라 회의 (Teams 모임)" /></label>
+        <label>설명 / 메모<textarea name="description" rows="4" maxlength="5000" placeholder="이 링크가 무엇인지, 언제 쓰는지 메모"></textarea></label>
+        <div class="row">
+          <label>관련 카테고리
+            <select name="category_id"></select>
+          </label>
+          <label>태그<input name="tag" maxlength="100" autocomplete="off" placeholder="예: 회의, 문서" /></label>
+        </div>
+        <p id="collab-modal-meta" class="muted hidden" style="margin: 0 0 8px; font-size: 12px;"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-collab-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
         </div>
       </form>
     </div>
